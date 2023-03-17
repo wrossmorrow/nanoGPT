@@ -1,0 +1,22 @@
+
+# MacOSX
+
+.DS_Store
+
+# Python
+
+.ipynb*
+__pycache__
+/*.csv
+*egg*
+/dist
+/build
+
+.mypy_cache
+.pytest_cache
+
+# Custom
+
+out/
+*.secret.*
+scratch
