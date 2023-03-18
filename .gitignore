@@ -17,6 +17,14 @@ __pycache__
 
 # Custom
 
+# data files, pickled objects, and/or checkpoints
+*.bin
+*.pkl
+*.pt
+
+# any output
 out/
+
+# labeled secrets and "scratch" (notes)
 *.secret.*
-scratch
+scratch/
