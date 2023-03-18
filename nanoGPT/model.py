@@ -183,9 +183,10 @@ class NanoGPT(nn.Module):
 
         return model
 
+    # TODO: Why TF is this a part of a model?
     def configure_optimizers(
         self,
-        weight_decay,
+        weight_decay: float,
         learning_rate: float,
         betas: Tuple[float, float],
         device_type: str,
@@ -252,6 +253,7 @@ class NanoGPT(nn.Module):
 
         return optimizer
 
+    # TODO: Why TF is this a part of a model?
     def estimate_mfu(self, fwdbwd_per_iter, dt) -> float:
         """estimate model flops utilization (MFU) in units of A100 bfloat16 peak FLOPS"""
         # first estimate the number of flops we do per iteration.

@@ -4,7 +4,7 @@ for train/test splits for an arbitrary model
 """
 import os.path
 
-from typing import Any, Dict, Tuple
+from typing import Any, Tuple
 
 import torch
 import numpy as np
@@ -60,7 +60,7 @@ class DataLoader:
         model: torch.nn.Module,
         eval_iters: int,
         ctx: Any,  # TODO: type for a context?
-    ) -> Dict[str, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
 
         out = {}
         model.eval()
@@ -74,4 +74,4 @@ class DataLoader:
             out[split] = losses.mean()
 
         model.train()
-        return out
+        return out["train"], out["val"]
