@@ -144,7 +144,6 @@ elif command == "resume":
     # configuration with resume commands
     #
     # trainer.overrides(**(train_config.dict() if train_config else {}))  # update if any passed
-    print(trainer.config)
     optimizer = configure_optimizer(model, trainer.config, device)
     load_checkpoint(chkpt_config, device, optimizer)
 
@@ -182,7 +181,8 @@ if command in ["train", "resume"]:
 else:
     model.eval()
     if command == "eval":
-        data.evaluate(model, context, evalm_config.eval_iters)
+        tl, vl, dt = data.evaluate(model, context, evalm_config.eval_iters)
+        print(f"train loss {tl:.4f}, val loss {vl:.4f}, eval took {dt:.6f}s")
     elif command == "generate":
         raise NotImplementedError("TBD")
         # model.generate(idx, gener_config, context)

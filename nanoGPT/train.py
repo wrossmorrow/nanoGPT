@@ -16,11 +16,17 @@ from .model import NanoGPT
 
 
 class NanoGPTTrainer:
-    def __init__(self, config: TrainingConfig) -> None:
+    def __init__(
+        self,
+        config: TrainingConfig,
+        prev_iters: int = 0,
+        prev_best_val_loss: float = 1.0e9,
+    ) -> None:
         self.config = config
 
         # TODO: ?
-        # self.best_val_loss: float = 1.0e9  # best validation loss
+        self.prev_iters = prev_iters
+        self.prev_best_val_loss = prev_best_val_loss
         self.mfu: Optional[float] = None
 
     def overrides(self, **kwargs) -> None:
@@ -39,7 +45,7 @@ class NanoGPTTrainer:
     ) -> Any:
 
         # local data (convenience and o/w)
-        best_val_loss: float = 1.0e9  # best validation loss
+        best_val_loss: float = self.prev_best_val_loss
         grad_accm_steps: int = self.config.gradient_accumulation_steps
         fwdbwd_per_iter = self.config.n_batch * grad_accm_steps
         raw_model = cast(NanoGPT, model.module if context.ddp_enabled else model)
@@ -181,127 +187,7 @@ class NanoGPTTrainer:
         filename = os.path.join(config.checkpoint_dir, config.train_checkpoint)
         checkpoint = torch.load(filename, map_location=device)
 
-        # iter_num = checkpoint["iter_num"]
-        # best_val_loss = checkpoint["best_val_loss"]
+        iter_num = checkpoint["iter_num"]
+        best_val_loss = checkpoint["best_val_loss"]
         train_config = TrainingConfig(**checkpoint["train_config"])
-        return NanoGPTTrainer(train_config)
-
-
-# def train(
-#     model: nn.Module,  # expect a NanoGPT, but not important actually
-#     data: DataLoader,
-#     optimizer: torch.optim.Optimizer,
-#     context: Any,
-#     config: TrainingConfig,
-#     ddp: bool = False,
-#     main_process: bool = True,
-# ) -> Any:
-
-#     best_val_loss: float = 1.0e9  # best validation loss
-#     grad_accm_steps: int = config.gradient_accumulation_steps
-
-#     # compile the model
-#     if config.compile:
-#         warn("compiling the model... (takes a ~minute)")
-#         model = torch.compile(model)  # requires PyTorch 2.0
-
-#     # training loop
-#     X, Y = data.get_batch("train")  # fetch the very first batch
-
-#     # get "GradScaler" (WTF)
-#     scaler = config.scaler()
-
-#     t0 = time()
-#     raw_model = model.module if ddp else model  # unwrap DDP container if needed
-#     mfu: Optional[float] = None
-
-#     if config.wandb_log and main_process:
-#         import wandb
-
-#         wandb.init(
-#             project=config.wandb_project,
-#             name=config.wandb_run_name,
-#             # config=config, # TODO: what here?
-#         )
-
-#     for it in range(config.max_iters):
-
-#         # determine and set the learning rate for this iteration
-#         lr = config.get_lr(it)
-#         for param_group in optimizer.param_groups:
-#             param_group["lr"] = lr
-
-#         # evaluate the loss on train/val sets and write checkpoints
-#         if it % config.eval_interval == 0 and main_process:
-#             tl, vl = data.estimate_loss(model, config.eval_iters, context)
-#             print(f"step {it}: train loss {tl:.4f}, val loss {vl:.4f}")
-
-#             if config.wandb_log:
-#                 wandb.log(
-#                     {
-#                         "iter": it,
-#                         "train/loss": tl,
-#                         "val/loss": vl,
-#                         "lr": lr,
-#                         "mfu": 0.0 if mfu is None else 100 * mfu,  # convert to percentage
-#                     }
-#                 )
-
-#             if vl < best_val_loss or config.always_save_checkpoint:
-#                 best_val_loss = vl
-#                 if it > 0:
-#                     checkpoint = {
-#                         "model": raw_model.state_dict(),
-#                         "optimizer": optimizer.state_dict(),
-#                         "model_config": asdict(model.config),
-#                         "iter_num": it,
-#                         "best_val_loss": best_val_loss,
-#                         "config": asdict(config),
-#                     }
-#                     filename = config.checkpoint_file()
-#                     print(f'saving checkpoint to "{filename}"')
-#                     torch.save(checkpoint, filename)
-
-#         # forward backward update, with optional gradient accumulation to
-#         # simulate larger batch size and using the GradScaler if data type
-#         # is float16
-#         for ms in range(grad_accm_steps):
-#             if ddp:
-#                 # in DDP training we only need to sync gradients at the last micro step.
-#                 # the official way to do this is with model.no_sync() context manager, but
-#                 # I really dislike that this bloats the code and forces us to repeat code
-#                 # looking at the source of that context manager, it just toggles this variable
-#                 model.require_backward_grad_sync = ms == grad_accm_steps - 1
-
-#             with context:
-#                 logits, loss = model(X, Y)
-
-#             # immediately async prefetch next batch while model is doing
-#             # the forward pass on the GPU
-#             X, Y = data.get_batch("train")
-
-#             # backward pass, with gradient scaling if training in fp16
-#             scaler.scale(loss).backward()
-
-#         # clip the gradient
-#         if config.grad_clip != 0.0:
-#             scaler.unscale_(optimizer)
-#             nn.utils.clip_grad_norm_(model.parameters(), config.grad_clip)
-
-#         # step the optimizer and scaler if training in fp16
-#         scaler.step(optimizer)
-#         scaler.update()
-
-#         # flush the gradients as soon as we can, no need for this memory anymore
-#         optimizer.zero_grad(set_to_none=True)
-
-#         # timing and logging
-#         t1 = time()
-#         dt = t1 - t0
-#         t0 = t1
-#         if it % config.log_interval == 0 and main_process:
-#             lossf = loss.item()  # loss as float. note: this is a CPU-GPU sync point
-#             if it >= 5:  # let the training loop settle a bit
-#                 _mfu = raw_model.estimate_mfu(config.n_batch * grad_accm_steps, dt)
-#                 mfu = _mfu if mfu is None else 0.9 * mfu + 0.1 * _mfu
-#             print(f"iter {it}: loss {lossf:.4f}, time {dt*1000:.2f}ms, mfu {mfu*100:.2f}%")
+        return NanoGPTTrainer(train_config, prev_iters=iter_num, prev_best_val_loss=best_val_loss)

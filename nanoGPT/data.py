@@ -57,9 +57,7 @@ class DataLoader:
         model: torch.nn.Module,
         context: NanoGPTContext,
         eval_iters: int,
-        split: str = "train",
     ) -> Tuple[float, float, float]:
-        X, Y = self.get_batch(split)
         ts = time()
         tl, vl = self.estimate_loss(model, context, eval_iters)
         dt = time() - ts
