@@ -169,7 +169,7 @@ class NanoGPTTrainer:
         return self.mfu
 
     def on_eval(self, it: int, dt: float, tl: float, vl: float, bvl: float, mfu: Optional[float]) -> bool:
-        print(f"step {it}: train loss {tl:.4f}, val loss {vl:.4f}, best val loss {bvl:.4f}")
+        print(f"step {it}: train loss {tl:.4f}, val loss {vl:.4f}, (prev) best val loss {bvl:.4f}")
         return True
 
     def on_log(self, it: int, dt: float, loss: torch.Tensor, mfu: Optional[float]) -> bool:
@@ -183,7 +183,7 @@ class NanoGPTTrainer:
 
         # iter_num = checkpoint["iter_num"]
         # best_val_loss = checkpoint["best_val_loss"]
-        train_config = checkpoint["train_config"]
+        train_config = TrainingConfig(**checkpoint["train_config"])
         return NanoGPTTrainer(train_config)
 
 

@@ -104,10 +104,6 @@ if ddp_config.enabled:
     seed_offset = ddp_config.seed_offset
     torch.cuda.set_device(ddp_config.device)
     device = ddp_config.device
-else:
-    # if not ddp, we are running on a single gpu, and one process
-    if command in ["train", "resume"]:
-        train_config.gradient_accumulation_steps *= 8  # simulate 8 gpus
 
 if "cuda" in device:
     assert torch.cuda.is_available()
@@ -148,6 +144,7 @@ elif command == "resume":
     # configuration with resume commands
     #
     # trainer.overrides(**(train_config.dict() if train_config else {}))  # update if any passed
+    print(trainer.config)
     optimizer = configure_optimizer(model, trainer.config, device)
     load_checkpoint(chkpt_config, device, optimizer)
 
