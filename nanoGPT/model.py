@@ -11,7 +11,7 @@ from __future__ import annotations
 import os.path
 
 from math import sqrt
-from typing import Any, List, Optional, Tuple
+from typing import Any, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -50,7 +50,7 @@ class NanoGPT(nn.Module):
         # not 100% sure what this is, so far seems to be harmless.
         #
         # Reference: https://paperswithcode.com/method/weight-tying
-        self.transformer.wte.weight = self.lm_head.weight
+        self.transformer.wte.weight = self.lm_head.weight  # type: ignore
 
         # init all weights
         self.apply(self._init_weights)
@@ -72,7 +72,7 @@ class NanoGPT(nn.Module):
         """
         n_params = sum(p.numel() for p in self.parameters())
         if non_embedding:
-            n_params -= self.transformer.wpe.weight.numel()
+            n_params -= self.transformer.wpe.weight.numel()  # type: ignore
         return n_params
 
     def _init_weights(self, module: nn.Module) -> None:
@@ -96,7 +96,7 @@ class NanoGPT(nn.Module):
         tok_emb = self.transformer.wte(idx)  # token embeddings of shape (b, t, n_embed)
         pos_emb = self.transformer.wpe(pos)  # position embeddings of shape (1, t, n_embed)
         x = self.transformer.drop(tok_emb + pos_emb)
-        for block in self.transformer.heads:
+        for block in self.transformer.heads:  # type: ignore
             x = block(x)
         x = self.transformer.ln_f(x)
 
@@ -117,7 +117,7 @@ class NanoGPT(nn.Module):
         idx: torch.Tensor,
         config: GenerateConfig,
         context: NanoGPTContext,
-    ) -> List[int]:
+    ) -> torch.Tensor:
         """
         Take a conditioning sequence of indices idx (LongTensor of shape
         (B, T)) and complete the sequence max_new_tokens times, feeding the

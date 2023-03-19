@@ -36,6 +36,7 @@ To run with DDP on 4 gpus across 2 nodes, example:
 import os
 
 from contextlib import nullcontext
+from typing import cast
 
 import torch
 from torch.distributed import init_process_group, destroy_process_group
@@ -51,40 +52,35 @@ from .train import NanoGPTTrainer
 # Read CLI args, parse them into configs, and validate for commands
 
 command, configs, args = DefaultCLI.parse_config()
-print(command, args)
-for name, conf in configs.items():
-    if conf is not None:
-        print(name, conf)
 
-chkpt_config = configs.get(config.CheckpointConfig.__name__)
-datas_config = configs.get(config.DatasetConfig.__name__)
-# devic_config = configs.get(config.DeviceConfig.__name__)
-evalm_config = configs.get(config.EvaluateConfig.__name__)
-gener_config = configs.get(config.GenerateConfig.__name__)
-model_config = configs.get(config.NanoGPTConfig.__name__)
-train_config = configs.get(config.TrainingConfig.__name__)
+chkpt_config = cast(config.CheckpointConfig, configs[config.CheckpointConfig.__name__])
+datas_config = cast(config.DatasetConfig, configs[config.DatasetConfig.__name__])
 
-assert datas_config is not None, "Dataset configuration required"
-# assert devic_config is not None, "Device configuration required"
+evalm_config: config.EvaluateConfig
+gener_config: config.GenerateConfig
+model_config: config.NanoGPTConfig
+train_config: config.TrainingConfig
 
 if command == "train":  # init a new model from scratch and train it
-    assert model_config is not None, "Model configuration required when training"
-    assert train_config is not None, "Training configuration required when training"
+    # assert model_config is not None, "Model configuration required when training"
+    # assert train_config is not None, "Training configuration required when training"
     print("Training a new model from scratch")
-    n_block = model_config.n_block
-    n_batch = train_config.n_batch
+    model_config = cast(config.NanoGPTConfig, configs[config.NanoGPTConfig.__name__])
+    train_config = cast(config.TrainingConfig, configs[config.TrainingConfig.__name__])
 
-else:
-    assert chkpt_config is not None, "Checkpoint configuration required"
-    if command == "eval":  # evaluate an existing model
-        assert evalm_config is not None, "Evaluation configuration required when evaluating"
-        print("Evaluating model from checkpoint")
-    elif command == "resume":  # resume training from a checkpoint.
-        # assert train_config is not None # training config is optional here
-        print("Resuming training from checkpoint")
-    elif command == "generate":  # generate text from a checkpoint.
-        assert gener_config is not None, "Generation configuration required when generating"
-        print("Generating from checkpoint")
+elif command == "eval":  # evaluate an existing model
+    # assert evalm_config is not None, "Evaluation configuration required when evaluating"
+    print("Evaluating model from checkpoint")
+    evalm_config = cast(config.EvaluateConfig, configs[config.EvaluateConfig.__name__])
+
+elif command == "resume":  # resume training from a checkpoint.
+    # assert train_config is not None # training config is optional here
+    print("Resuming training from checkpoint")
+
+elif command == "generate":  # generate text from a checkpoint.
+    # assert gener_config is not None, "Generation configuration required when generating"
+    print("Generating from checkpoint")
+    gener_config = cast(config.GenerateConfig, configs[config.GenerateConfig.__name__])
 
 
 # DDP backend
@@ -140,15 +136,18 @@ elif command == "train":
     dtype = trainer.config.dtype
 
     if main_process:
-        os.makedirs(train_config.out_dir, exist_ok=True)
+        os.makedirs(chkpt_config.checkpoint_dir, exist_ok=True)
         # TODO: checkpoint dirs, logging dirs?
 
 elif command == "resume":
     model = NanoGPT.from_checkpoint(chkpt_config, device)
     trainer = NanoGPTTrainer.from_checkpoint(chkpt_config, device)
-    trainer.overrides(**(train_config.dict() if train_config else {}))  # update if any passed
     # TODO: with all the defaults I actually don't think this is effective...
-    # Specifically, we'll always override everything and that's not the idea
+    # Specifically, we'll always override everything and that's not the idea.
+    # Basically, figure out a way to allow extra arguments to override training
+    # configuration with resume commands
+    #
+    # trainer.overrides(**(train_config.dict() if train_config else {}))  # update if any passed
     optimizer = configure_optimizer(model, trainer.config, device)
     load_checkpoint(chkpt_config, device, optimizer)
 
@@ -170,7 +169,7 @@ data = DataLoader(datas_config, n_block, n_batch, device)
 model.to(device)
 
 # wrap model into DDP container (no-op if not enabled)
-model = ddp_config.wrap(model)
+model = cast(NanoGPT, ddp_config.wrap(model))
 
 # evaluate/training context (not used in generation?)
 context = config.NanoGPTContext(
@@ -181,14 +180,15 @@ context = config.NanoGPTContext(
     else nullcontext(),
 )
 
-# if command in ["train", "resume"]:
-#     trainer.train(model, data, optimizer, context)
-# elif command == "eval":
-#     model.eval()
-#     data.evaluate(model, eval_iters, context)
-# elif command == "generate":
-#     model.eval()
-#     model.generate(idx, gener_config, context)
+if command in ["train", "resume"]:
+    trainer.train(model, data, optimizer, chkpt_config, context)
+else:
+    model.eval()
+    if command == "eval":
+        data.evaluate(model, context, evalm_config.eval_iters)
+    elif command == "generate":
+        raise NotImplementedError("TBD")
+        # model.generate(idx, gener_config, context)
 
 if ddp_config.enabled:
     destroy_process_group()

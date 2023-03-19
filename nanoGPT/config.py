@@ -58,7 +58,7 @@ class Loadable:
 
     @classmethod
     def from_yaml(cls, config: str, **kwargs) -> Any:
-        data = yaml.load(config, Loader=yaml.SafeLoader)[cls.__conf_name__]
+        data = yaml.load(config, Loader=yaml.SafeLoader).get(cls.__conf_name__, {})
         return cls.from_data(data, **kwargs)
 
     @classmethod
@@ -114,7 +114,7 @@ class NanoGPTConfig(Loadable, Dictable):
     n_layer: int = field(default=12, metadata={"help": "Number of layers"})
     n_heads: int = field(default=12, metadata={"help": "Number of heads in the multiattention layers"})
     n_embed: int = field(default=768, metadata={"help": "Embedding dimension"})
-    n_attnd: int = field(init=False, metadata={"cli": False})
+    # n_attnd: int = field(init=False, metadata={"cli": False})
 
     batched_qkv: bool = field(
         default=False, metadata={"help": "batch queries, keys, and values (all with or without bias)"}
@@ -138,9 +138,10 @@ class NanoGPTConfig(Loadable, Dictable):
 
     def __post_init__(self) -> None:
         assert self.n_embed % self.n_heads == 0
-        self.n_attnd = self.n_embed // self.n_heads
-        if self.attn_scale is None:
-            self.attn_scale = sqrt(self.n_attnd)  # TODO: try 2 * self.n_embed
+        # self.n_attnd = self.n_embed // self.n_heads
+        if self.attn_scale is None:  # TODO: try 2 * self.n_embed
+            self.attn_scale = sqrt(self.n_embed // self.n_heads)
+            # self.attn_scale = sqrt(self.n_attnd)
 
     @staticmethod
     def gpt2(size: str = "default") -> NanoGPTConfig:
@@ -187,23 +188,22 @@ class TrainingConfig(Loadable, Dictable):
     )  # the latter will auto implement a GradScaler
 
     # "compile" the model or not
-    torch_compile: bool = field(default=True, metadata={"help": "Compile the model to be faster (requires torch v2.0"})
+    torch_compile: bool = field(default=True, metadata={"help": "Compile the model to be faster (requires torch v2.0)"})
+
+    estimate_mfu: bool = field(default=True, metadata={"help": "Keep up a running estimate of MFU"})
 
     # evaluation/logging intervals and associated data
     eval_interval: int = field(default=2000, metadata={"help": "Iteration interval for train/test evaluations"})
-    log_interval: int = field(default=1, metadata={"help": "Iteration interval for logging"})
     eval_iters: int = field(
         default=200, metadata={"help": "Number of iterations to use in evaluations of train/test loss"}
     )
     always_save_checkpoint: bool = field(default=True, metadata={"help": "Always save a checkpoint after each eval"})
-    checkpoint_filename: str = field(default="ckpt.pt", metadata={"help": "Filename for checkpoint files"})
 
     # directories
-    data_dir: str = field(default="data", metadata={"help": "Directory where data is stored"})
-    out_dir: str = field(default="out", metadata={"help": "Directory where output is stored"})
-    log_dir: str = field(default="log", metadata={"help": "Directory where  logs are stored"})
 
-    # wandb logging
+    # logging/wandb logging
+    log_interval: int = field(default=1, metadata={"help": "Iteration interval for logging"})
+    log_dir: str = field(default="log", metadata={"help": "Directory where  logs are stored"})
     wandb_log: bool = field(default=False, metadata={"help": "Use weights-and-biases logging"})  # disabled by default
     wandb_project: str = field(default="owt", metadata={"help": "Project for weights-and-biases logging"})
     wandb_run_name: str = field(
@@ -234,14 +234,6 @@ class TrainingConfig(Loadable, Dictable):
     def __post_init__(self) -> None:
         assert self.dtype in TORCH_TYPES, f'Invalid dtype = "{self.dtype}"'
 
-        # TODO: should we setup DDP here? or in __main__?
-
-    def checkpoint_file(self) -> str:
-        return os.path.join(self.out_dir, self.checkpoint_filename)
-
-    def device_type(self) -> str:
-        return "cuda" if "cuda" in self.device else "cpu"  # used for torch.autocast
-
     def torch_type(self) -> torch.dtype:
         return TORCH_TYPES[self.dtype]
 
@@ -267,7 +259,7 @@ class DatasetConfig(Loadable, Dictable):
 
     __conf_name__ = "dataset"
 
-    dataset_name: str = field(default=None, metadata={"help": "Internal name of this dataset"})
+    dataset_name: Optional[str] = field(default=None, metadata={"help": "Internal name of this dataset"})
     dataset_dir: str = field(default="data", metadata={"help": "Directory dataset files are in"})
     train_filename: str = field(default="train.bin", metadata={"help": "Training data filename (in dataset_dir)"})
     val_filename: str = field(default="val.bin", metadata={"help": "Test/Validate data filename (in dataset_dir)"})
@@ -278,16 +270,55 @@ class CheckpointConfig(Loadable, Dictable):
 
     __conf_name__ = "checkpoint"
 
-    checkpoint_dir: str = field(default="data", metadata={"help": "Directory to find files in"})
+    checkpoint_dir: str = field(default="out", metadata={"help": "Directory to find files in"})
     train_checkpoint: str = field(
         default="train.pt", metadata={"help": "Training checkpoint filename (in checkpoint_dir)"}
     )
     model_checkpoint: str = field(
         default="model.pt", metadata={"help": "Model checkpoint filename (in checkpoint_dir)"}
     )
-    optimizer_checkpoint: str = field(
+    optim_checkpoint: str = field(
         default="optim.pt", metadata={"help": "Optimizer checkpoint filename (in checkpoint_dir)"}
     )
+
+    def save(
+        self,
+        iter_num: int,
+        best_val_loss: float,
+        model: nn.Module,
+        model_config: NanoGPTConfig,
+        optimizer: torch.optim.Optimizer,
+        train_config: TrainingConfig,
+    ) -> None:
+        # splitting up into train_ckpt, model_ckpt, optim_ckpt
+        # will help organize as well as be efficient in "rehydrating"
+        # training, model, and optimizer separately
+        print("saving checkpoint(s)")
+        torch.save(
+            {
+                "iter_num": iter_num,
+                "best_val_loss": best_val_loss,
+                "train_config": train_config.dict(),
+            },
+            os.path.join(self.checkpoint_dir, self.train_checkpoint),
+        )
+        torch.save(
+            {
+                "iter_num": iter_num,
+                "best_val_loss": best_val_loss,
+                "model_config": model_config.dict(),
+                "model_state": model.state_dict(),
+            },
+            os.path.join(self.checkpoint_dir, self.model_checkpoint),
+        )
+        torch.save(
+            {
+                "iter_num": iter_num,
+                "best_val_loss": best_val_loss,
+                "optim_state": optimizer.state_dict(),
+            },
+            os.path.join(self.checkpoint_dir, self.optim_checkpoint),
+        )
 
 
 @dataclass
@@ -352,11 +383,11 @@ class DDPConfig:
             destroy_process_group()
 
     @staticmethod
-    def from_env() -> Optional[DDPConfig]:
+    def from_env() -> DDPConfig:
         enabled = False
         rank = int(environ.get("RANK", -1))
         if rank == -1:  # not a ddp run?
-            return DDPConfig(rank=1, local_rank=0, seed_offset=0)
+            return DDPConfig(enabled=enabled, rank=1, local_rank=0, seed_offset=0)
 
         local_rank = int(environ["LOCAL_RANK"])
         config = DDPConfig(enabled=enabled, rank=rank, local_rank=local_rank, seed_offset=rank)

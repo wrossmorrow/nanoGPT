@@ -58,7 +58,7 @@ class DataLoader:
         context: NanoGPTContext,
         eval_iters: int,
         split: str = "train",
-    ) -> Tuple[torch.Tensor, torch.Tensor, float]:
+    ) -> Tuple[float, float, float]:
         X, Y = self.get_batch(split)
         ts = time()
         tl, vl = self.estimate_loss(model, context, eval_iters)
@@ -72,7 +72,7 @@ class DataLoader:
         model: torch.nn.Module,
         context: NanoGPTContext,
         eval_iters: int,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> Tuple[float, float]:
 
         out = {}
         model.eval()
@@ -86,4 +86,8 @@ class DataLoader:
             out[split] = losses.mean()
 
         model.train()
-        return out["train"], out["val"]
+        return out["train"].item(), out["val"].item()
+        # NOTE: CPU/GPU sync point; but honestly what else should
+        # we expect when estimating loss? Like, if we use these
+        # to print or basically do anything orthogonal to training
+        # we're going to sync.

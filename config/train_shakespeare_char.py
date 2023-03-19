@@ -1,6 +1,7 @@
 # train a miniature character-level shakespeare model
 # good for debugging and playing on macbooks and such
 
+
 out_dir = 'out/shakespeare-char'
 eval_interval = 250 # keep frequent because we'll overfit
 eval_iters = 200
@@ -19,8 +20,8 @@ block_size = 256 # context of up to 256 previous characters
 
 # baby GPT model :)
 n_layer = 6
-n_head = 6
-n_embd = 384
+n_heads = 6
+n_embed = 384
 dropout = 0.2
 
 learning_rate = 1e-3 # with baby networks can afford to go a bit higher

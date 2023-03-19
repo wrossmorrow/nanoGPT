@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import os.path
 
-from dataclasses import asdict
 from math import cos, pi
 from time import time
-from typing import Any, Optional, Union
+from typing import Any, cast, Optional, Union
 from warnings import warn
 
 import torch
@@ -35,6 +34,7 @@ class NanoGPTTrainer:
         model: nn.Module,  # expect a NanoGPT, but not important actually
         data: DataLoader,
         optimizer: torch.optim.Optimizer,
+        checkpoints: CheckpointConfig,
         context: NanoGPTContext,
     ) -> Any:
 
@@ -42,7 +42,7 @@ class NanoGPTTrainer:
         best_val_loss: float = 1.0e9  # best validation loss
         grad_accm_steps: int = self.config.gradient_accumulation_steps
         fwdbwd_per_iter = self.config.n_batch * grad_accm_steps
-        raw_model = model.module if self.ddp_enabled else model
+        raw_model = cast(NanoGPT, model.module if context.ddp_enabled else model)
 
         # compile the model
         if self.config.torch_compile:
@@ -71,18 +71,18 @@ class NanoGPTTrainer:
                 if vl < best_val_loss or self.config.always_save_checkpoint:
                     best_val_loss = vl
                     if it > 0:
-                        self.save_checkpoint(it, raw_model, best_val_loss, optimizer)
+                        checkpoints.save(it, best_val_loss, raw_model, raw_model.config, optimizer, self.config)
 
             # forward backward update, with optional gradient accumulation to
             # simulate larger batch size and using the GradScaler if data type
             # is float16
             for ms in range(grad_accm_steps):
-                if self.ddp:
+                if context.ddp_enabled:
                     # in DDP training we only need to sync gradients at the last micro step.
                     # the official way to do this is with model.no_sync() context manager, but
                     # I really dislike that this bloats the code and forces us to repeat code
                     # looking at the source of that context manager, it just toggles this variable
-                    model.require_backward_grad_sync = ms == grad_accm_steps - 1
+                    model.require_backward_grad_sync = ms == grad_accm_steps - 1  # type: ignore
 
                 # compute logits and loss, possibly using mixed precision
                 with context.amp_context:
@@ -111,7 +111,7 @@ class NanoGPTTrainer:
             te = time()
             dt = te - ts
             ts = te
-            if it % self.config.log_interval == 0 and self.main_process:
+            if it % self.config.log_interval == 0 and context.main_process:
                 if it >= 5:  # let the training loop settle a bit
                     self.estimate_mfu(raw_model, fwdbwd_per_iter, dt)
                 self.on_log(it, dt, loss, self.mfu)
@@ -137,30 +137,8 @@ class NanoGPTTrainer:
         decay_ratio = num / den
         assert 0 <= decay_ratio <= 1
 
-        coeff = 0.5 * (1.0 + cos(pi * self.config.decay_ratio))  # coeff ranges 0..1
+        coeff = 0.5 * (1.0 + cos(pi * decay_ratio))  # coeff ranges 0..1
         return self.config.min_lr + coeff * (self.config.learning_rate - self.config.min_lr)
-
-    def save_checkpoint(
-        self,
-        it: int,
-        model: nn.Module,
-        best_val_loss: float,
-        optimizer: torch.optim.Optimizer,
-    ) -> None:
-        # TODO: split up into train_ckpt, model_ckpt, optim_ckpt
-        # this will help organize as well as be efficient in
-        # "rehydrating" training, model, and optimizer separately
-        checkpoint = {
-            "iter_num": it,
-            "best_val_loss": best_val_loss,
-            "model_config": asdict(model.config),
-            "model_state": model.state_dict(),
-            "train_config": asdict(self.config),
-            "optim_state": optimizer.state_dict(),
-        }
-        filename = self.config.checkpoint_file()
-        print(f'saving checkpoint to "{filename}"')
-        torch.save(checkpoint, filename)
 
     def estimate_mfu(self, model: NanoGPT, fwdbwd_per_iter: Union[float, int], dt: float) -> Optional[float]:
         """
@@ -191,6 +169,7 @@ class NanoGPTTrainer:
         return self.mfu
 
     def on_eval(self, it: int, dt: float, tl: float, vl: float, bvl: float, mfu: Optional[float]) -> bool:
+        print(f"step {it}: train loss {tl:.4f}, val loss {vl:.4f}, best val loss {bvl:.4f}")
         return True
 
     def on_log(self, it: int, dt: float, loss: torch.Tensor, mfu: Optional[float]) -> bool:

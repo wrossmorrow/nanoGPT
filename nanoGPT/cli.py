@@ -8,39 +8,9 @@ from torch.cuda import is_available as cuda_is_available
 from . import config
 
 
-def _add_field(parser: argparse.ArgumentParser, field: Field) -> None:
-    field_flag = "--" + field.name.replace("_", "-")
-    if isinstance(field.default, _MISSING_TYPE):
-        parser.add_argument(
-            field_flag,
-            type=field.type,
-            required=True,  # problematic if we allow config files
-            help=field.metadata.get("help", "-"),
-        )
-    else:
-        parser.add_argument(
-            field_flag,
-            type=field.type,
-            default=field.default,
-            help=field.metadata.get("help", "-"),
-        )
-
-
 @dataclass
-class CLICommand:
-    name: str
-    conf_classes: List[Any]
-
-    def parse_config(self, args: argparse.Namespace) -> List[Any]:
-        confs = []
-        for cc in self.conf_classes:
-            conf_args = {
-                fld: getattr(args, fld)
-                for fld in [f.name for f in fields(cc) if f.init and f.metadata.get("cli", True)]
-            }
-            conf = cc.from_file(args.config_file, **conf_args) if args.config_file else cc(**conf_args)
-            confs.append(conf)
-        return confs
+class DefaultValue:
+    value: Any
 
 
 @dataclass
@@ -67,6 +37,23 @@ class CLIArgument:
                 default=self.default,
                 help=self.help,
             )
+
+
+@dataclass
+class CLICommand:
+    name: str
+    conf_classes: List[Any]
+
+    def parse_config(self, args: argparse.Namespace) -> List[Any]:
+        confs = []
+        for cc in self.conf_classes:
+            cc_fields = [f.name for f in fields(cc) if f.init and f.metadata.get("cli", True)]
+            conf_args = {
+                fld: getattr(args, fld) for fld in cc_fields if not isinstance(getattr(args, fld), DefaultValue)
+            }
+            conf = cc.from_file(args.config_file, **conf_args) if args.config_file else cc(**conf_args)
+            confs.append(conf)
+        return confs
 
 
 class CLIParser:
@@ -99,11 +86,28 @@ class CLIParser:
             for fld in fields(cc):
                 if fld.init and fld.metadata.get("cli", True):
                     fld.type = resolved[fld.name]
-                    _add_field(parser, fld)
+                    self.add_field(parser, fld)
         if extra_args:
             for arg in extra_args:
                 arg.add_to_parser(parser)
         return parser
+
+    def add_field(self, parser: argparse.ArgumentParser, field: Field) -> None:
+        field_flag = "--" + field.name.replace("_", "-")
+        if isinstance(field.default, _MISSING_TYPE):
+            parser.add_argument(
+                field_flag,
+                type=field.type,
+                required=True,  # problematic if we allow config files
+                help=field.metadata.get("help", "-"),
+            )
+        else:
+            parser.add_argument(
+                field_flag,
+                type=field.type,
+                default=DefaultValue(field.default),  # field.default,
+                help=field.metadata.get("help", "-"),
+            )
 
     def parse_args(self) -> argparse.Namespace:
         args = self.parser.parse_args()
@@ -118,7 +122,7 @@ class CLIParser:
 
 default_cmd_configs = {
     "eval": [config.DatasetConfig, config.CheckpointConfig, config.EvaluateConfig],
-    "train": [config.DatasetConfig, config.NanoGPTConfig, config.TrainingConfig],
+    "train": [config.DatasetConfig, config.CheckpointConfig, config.NanoGPTConfig, config.TrainingConfig],
     "resume": [config.DatasetConfig, config.CheckpointConfig, config.TrainingConfig],
     "generate": [config.DatasetConfig, config.GenerateConfig],
 }
@@ -133,4 +137,4 @@ DeviceCLIArg = CLIArgument(
 
 DefaultCLI = CLIParser()
 for cmd, confs in default_cmd_configs.items():
-    DefaultCLI.add_cmd(cmd, confs, [DeviceCLIArg])
+    DefaultCLI.add_cmd(cmd, confs, True, [DeviceCLIArg])
