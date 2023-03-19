@@ -4,34 +4,32 @@ for train/test splits for an arbitrary model
 """
 import os.path
 
-from typing import Any, Tuple
+from time import time
+from typing import Tuple
 
 import torch
 import numpy as np
+
+from .config import DatasetConfig, NanoGPTContext
 
 
 class DataLoader:
     def __init__(
         self,
-        dataset: str,
+        config: DatasetConfig,
         n_block: int,
         n_batch: int,
         device: str,
-        train_fn: str = "train.bin",
-        val_fn: str = "val.bin",
     ) -> None:
 
-        self.data_dir = os.path.join("data", dataset)
-        self.train_data = np.memmap(
-            os.path.join(self.data_dir, train_fn),
-            dtype=np.uint16,
-            mode="r",
-        )
-        self.val_data = np.memmap(
-            os.path.join(self.data_dir, val_fn),
-            dtype=np.uint16,
-            mode="r",
-        )
+        self.name = config.dataset_name
+
+        train_data_fn = os.path.join(config.dataset_dir, config.train_filename)
+        val_data_fn = os.path.join(config.dataset_dir, config.val_filename)
+
+        self.train_data = np.memmap(train_data_fn, dtype=np.uint16, mode="r")
+        self.val_data = np.memmap(val_data_fn, dtype=np.uint16, mode="r")
+
         self.n_block = n_block
         self.n_batch = n_batch
         self.device = device
@@ -44,7 +42,7 @@ class DataLoader:
         x = torch.stack([torch.from_numpy((data[i : i + self.n_block]).astype(np.int64)) for i in ix])
         y = torch.stack([torch.from_numpy((data[i + 1 : i + 1 + self.n_block]).astype(np.int64)) for i in ix])
 
-        if self.device == "cuda":
+        if "cuda" in self.device:
             # pin arrays x,y, which allows us to move them to GPU asynchronously
             # (non_blocking=True)
             x = x.pin_memory().to(self.device, non_blocking=True)
@@ -53,13 +51,27 @@ class DataLoader:
 
         return x.to(self.device), y.to(self.device)
 
+    @torch.no_grad()
+    def evaluate(
+        self,
+        model: torch.nn.Module,
+        context: NanoGPTContext,
+        eval_iters: int,
+        split: str = "train",
+    ) -> Tuple[torch.Tensor, torch.Tensor, float]:
+        X, Y = self.get_batch(split)
+        ts = time()
+        tl, vl = self.estimate_loss(model, context, eval_iters)
+        dt = time() - ts
+        return tl, vl, dt
+
     # helps estimate an arbitrarily accurate loss over either split using many batches
     @torch.no_grad()
     def estimate_loss(
         self,
         model: torch.nn.Module,
+        context: NanoGPTContext,
         eval_iters: int,
-        ctx: Any,  # TODO: type for a context?
     ) -> Tuple[torch.Tensor, torch.Tensor]:
 
         out = {}
@@ -68,7 +80,7 @@ class DataLoader:
             losses = torch.zeros(eval_iters)
             for k in range(eval_iters):
                 X, Y = self.get_batch(split)
-                with ctx:
+                with context.amp_context:
                     logits, loss = model(X, Y)
                 losses[k] = loss.item()
             out[split] = losses.mean()

@@ -18,6 +18,7 @@ if not os.path.exists(input_file_path):
 
 with open(input_file_path, 'r') as f:
     data = f.read()
+
 print(f"length of dataset in characters: {len(data):,}")
 
 # get all the unique characters that occur in this text
@@ -59,6 +60,8 @@ meta = {
 }
 with open(os.path.join(os.path.dirname(__file__), 'meta.pkl'), 'wb') as f:
     pickle.dump(meta, f)
+
+os.remove(input_file_path)
 
 # length of dataset in characters:  1115394
 # all the unique characters:

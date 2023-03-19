@@ -26,217 +26,169 @@ To run with DDP on 4 gpus across 2 nodes, example:
 
 """
 
+# TODO: decide whether to include GPT2; it's "just" an initialization
+# from a HuggingFace model anyway, so why recreate? If we want to fine-
+# tune a GPT2 variant, we could come up with another mechanism to pre-
+# process GPT2 weights separately and load like a "resume" command.
+#
+# See pretrained.py for removed code
+
 import os
-import pickle
+
 from contextlib import nullcontext
 
 import torch
 from torch.distributed import init_process_group, destroy_process_group
 
-from .config import NanoGPTConfig, TrainingConfig, DDPConfig
+from . import config
+from .cli import DefaultCLI
 from .data import DataLoader
 from .model import NanoGPT
-from .train import evaluate, train
+from .optim import configure_optimizer, load_checkpoint
+from .train import NanoGPTTrainer
 
-# -----------------------------------------------------------------------------
-# default config values designed to train a gpt2 (124M) on OpenWebText
-# I/O
-data_dir = "data"
-out_dir = "out"
-eval_interval = 2000
-log_interval = 1
-eval_iters = 200
-eval_only = False  # if True, script exits right after the first eval
-always_save_checkpoint = True  # if True, always save a checkpoint after each eval
-init_from = "scratch"  # 'scratch' or 'resume' or 'gpt2*'
-# wandb logging
-wandb_log = False  # disabled by default
-wandb_project = "owt"
-wandb_run_name = "gpt2"  # 'run' + str(time.time())
-# data
-dataset = "openwebtext"
-gradient_accumulation_steps = 5  # used to simulate larger batch sizes
-batch_size = 12  # if gradient_accumulation_steps > 1, this is the micro-batch size
-block_size = 1024
-# model
-n_layer = 12
-n_head = 12
-n_embd = 768
-dropout = 0.0  # for pretraining 0 is good, for finetuning try 0.1+
-bias = False  # do we use bias inside LayerNorm and Linear layers?
-# adamw optimizer
-learning_rate = 6e-4  # max learning rate
-max_iters = 600000  # total number of training iterations
-weight_decay = 1e-1
-beta1 = 0.9
-beta2 = 0.95
-grad_clip = 1.0  # clip gradients at this value, or disable if == 0.0
-# learning rate decay settings
-decay_lr = True  # whether to decay the learning rate
-warmup_iters = 2000  # how many steps to warm up for
-lr_decay_iters = 600000  # should be ~= max_iters per Chinchilla
-min_lr = 6e-5  # minimum learning rate, should be ~= learning_rate/10 per Chinchilla
-# DDP settings
-backend = "nccl"  # 'nccl', 'gloo', etc.
-# system
-device = "cuda"  # examples: 'cpu', 'cuda', 'cuda:0', 'cuda:1' etc., or try 'mps' on macbooks
-dtype = "bfloat16"  # 'float32', 'bfloat16', or 'float16', the latter will auto implement a GradScaler
-compile = True  # use PyTorch 2.0 to compile the model to be faster
 
-# -----------------------------------------------------------------------------
-config_keys = [k for k, v in globals().items() if not k.startswith("_") and isinstance(v, (int, float, bool, str))]
-exec(open("configurator.py").read())  # overrides from command line or config file
-config = {k: globals()[k] for k in config_keys}  # will be useful for logging
-# -----------------------------------------------------------------------------
+# Read CLI args, parse them into configs, and validate for commands
+
+command, configs, args = DefaultCLI.parse_config()
+print(command, args)
+for name, conf in configs.items():
+    if conf is not None:
+        print(name, conf)
+
+chkpt_config = configs.get(config.CheckpointConfig.__name__)
+datas_config = configs.get(config.DatasetConfig.__name__)
+# devic_config = configs.get(config.DeviceConfig.__name__)
+evalm_config = configs.get(config.EvaluateConfig.__name__)
+gener_config = configs.get(config.GenerateConfig.__name__)
+model_config = configs.get(config.NanoGPTConfig.__name__)
+train_config = configs.get(config.TrainingConfig.__name__)
+
+assert datas_config is not None, "Dataset configuration required"
+# assert devic_config is not None, "Device configuration required"
+
+if command == "train":  # init a new model from scratch and train it
+    assert model_config is not None, "Model configuration required when training"
+    assert train_config is not None, "Training configuration required when training"
+    print("Training a new model from scratch")
+    n_block = model_config.n_block
+    n_batch = train_config.n_batch
+
+else:
+    assert chkpt_config is not None, "Checkpoint configuration required"
+    if command == "eval":  # evaluate an existing model
+        assert evalm_config is not None, "Evaluation configuration required when evaluating"
+        print("Evaluating model from checkpoint")
+    elif command == "resume":  # resume training from a checkpoint.
+        # assert train_config is not None # training config is optional here
+        print("Resuming training from checkpoint")
+    elif command == "generate":  # generate text from a checkpoint.
+        assert gener_config is not None, "Generation configuration required when generating"
+        print("Generating from checkpoint")
+
+
+# DDP backend
+#
+# TODO: environment? another config obj?
+ddp_backend: str = "nccl"  # 'nccl', 'gloo', etc.
 
 # various inits, derived attributes, I/O setup
 
-master_process: bool = True
+main_process: bool = True
 seed_offset: int = 0
+n_block: int = 0
+n_batch: int = 0
+device: str = args.device if hasattr(args, "device") else "cpu"
+dtype: str
 
-ddp_config = DDPConfig.from_env()  # is this a ddp run?
-if ddp_config is None:
-    # if not ddp, we are running on a single gpu, and one process
-    gradient_accumulation_steps *= 8  # simulate 8 gpus
-else:
-    init_process_group(backend=backend)
-    master_process = ddp_config.master_process
+ddp_config = config.DDPConfig.from_env()  # is this a ddp run?
+if ddp_config.enabled:
+    init_process_group(backend=ddp_backend)
+    main_process = ddp_config.main_process
     seed_offset = ddp_config.seed_offset
+    torch.cuda.set_device(ddp_config.device)
+    device = ddp_config.device
+else:
+    # if not ddp, we are running on a single gpu, and one process
+    if command in ["train", "resume"]:
+        train_config.gradient_accumulation_steps *= 8  # simulate 8 gpus
 
-if master_process:
-    os.makedirs(out_dir, exist_ok=True)
+if "cuda" in device:
+    assert torch.cuda.is_available()
 
+# generic torch setup for this process
 torch.manual_seed(1337 + seed_offset)
 torch.backends.cuda.matmul.allow_tf32 = True  # allow tf32 on matmul
 torch.backends.cudnn.allow_tf32 = True  # allow tf32 on cudnn
 
-device_type = "cuda" if "cuda" in device else "cpu"  # for later use in torch.autocast
-# TODO: device_type = config.device_type()
+# define the model, and maybe trainer and optimizer; also define
+# the runtime block and batch sizes for the dataset loader/wrapper
+if command == "eval":
+    model = NanoGPT.from_checkpoint(chkpt_config, device)
 
-# note: float16 data type will automatically use a GradScaler
-ptdtype = {"float32": torch.float32, "bfloat16": torch.bfloat16, "float16": torch.float16}[dtype]
-# TODO: ptdtype = config.ptdtype()
+    n_block = model.config.n_block
+    n_batch = evalm_config.n_batch
+    dtype = evalm_config.dtype
 
-context = nullcontext() if device_type == "cpu" else (torch.amp.autocast(device_type=device_type, dtype=ptdtype))
-# TODO: context = config.context()
+elif command == "train":
+    model = NanoGPT(model_config)
+    trainer = NanoGPTTrainer(train_config)
+    optimizer = configure_optimizer(model, train_config, device)
 
-data = DataLoader(dataset, block_size, batch_size, device)
-# TODO: data = DataLoader(dataset, config.n_block, config.n_batch, config.device)
+    n_block = model.config.n_block
+    n_batch = trainer.config.n_batch
+    dtype = trainer.config.dtype
 
-# init these up here, can override if init_from='resume' (i.e. from a checkpoint)
-iter_num = 0
-best_val_loss = 1e9
+    if main_process:
+        os.makedirs(train_config.out_dir, exist_ok=True)
+        # TODO: checkpoint dirs, logging dirs?
 
-# attempt to derive vocab_size from the dataset
-meta_path = os.path.join(data_dir, "meta.pkl")
-meta_vocab_size = None
-if os.path.exists(meta_path):
-    with open(meta_path, "rb") as f:
-        meta = pickle.load(f)
-    meta_vocab_size = meta["vocab_size"]
-    print(f"found vocab_size = {meta_vocab_size} (inside {meta_path})")
+elif command == "resume":
+    model = NanoGPT.from_checkpoint(chkpt_config, device)
+    trainer = NanoGPTTrainer.from_checkpoint(chkpt_config, device)
+    trainer.overrides(**(train_config.dict() if train_config else {}))  # update if any passed
+    # TODO: with all the defaults I actually don't think this is effective...
+    # Specifically, we'll always override everything and that's not the idea
+    optimizer = configure_optimizer(model, trainer.config, device)
+    load_checkpoint(chkpt_config, device, optimizer)
 
-# model init
-model_args = dict(
-    n_layer=n_layer, n_head=n_head, n_embd=n_embd, block_size=block_size, bias=bias, vocab_size=None, dropout=dropout
-)  # start with model_args from command line
+    n_block = model.config.n_block
+    n_batch = trainer.config.n_batch
+    dtype = trainer.config.dtype
 
-if init_from == "scratch":  # init a new model from scratch
-    print("Initializing a new model from scratch")
+elif command == "generate":
+    model = NanoGPT.from_checkpoint(chkpt_config, device)
 
-    # determine the vocab size we'll use for from-scratch training
-    if meta_vocab_size is None:
-        print("defaulting to vocab_size of GPT-2 to 50304 (50257 rounded up for efficiency)")
+    n_block = model.config.n_block
+    n_batch = 1  # NOTE: batch size not actually relevant here
+    dtype = gener_config.dtype
 
-    model_args["vocab_size"] = meta_vocab_size if meta_vocab_size is not None else 50304
+# construct dataset loader/wrapper using block/batch sizes case-determined above
+data = DataLoader(datas_config, n_block, n_batch, device)
 
-    gptconf = NanoGPTConfig(**model_args)
-    model = NanoGPT(gptconf)
-
-elif init_from == "resume":  # resume training from a checkpoint.
-    print(f"Resuming training from {out_dir}")
-
-    ckpt_path = os.path.join(out_dir, "ckpt.pt")
-    checkpoint = torch.load(ckpt_path, map_location=device)
-    checkpoint_model_args = checkpoint["model_args"]
-
-    # force these config attributes to be equal otherwise we can't even resume training
-    # the rest of the attributes (e.g. dropout) can stay as desired from command line
-    for k in ["n_layer", "n_head", "n_embd", "block_size", "bias", "vocab_size"]:
-        model_args[k] = checkpoint_model_args[k]
-
-    # create the model
-    gptconf = NanoGPTConfig(**model_args)
-    model = NanoGPT(gptconf)
-
-    state_dict = checkpoint["model"]
-
-    # fix the keys of the state dictionary :(
-    # honestly no idea how checkpoints sometimes get this prefix, have to debug more
-    unwanted_prefix = "_orig_mod."
-    for k, v in list(state_dict.items()):
-        if k.startswith(unwanted_prefix):
-            state_dict[k[len(unwanted_prefix) :]] = state_dict.pop(k)
-
-    model.load_state_dict(state_dict)
-
-    iter_num = checkpoint["iter_num"]
-    best_val_loss = checkpoint["best_val_loss"]
-
-elif init_from.startswith("gpt2"):  # initialize from OpenAI GPT-2 weights
-    print(f"Initializing from OpenAI GPT-2 weights: {init_from}")
-
-    override_args = {"dropout": dropout}
-    model = NanoGPT.from_pretrained(init_from, override_args)
-
-    # read off the created config params, so we can store them into checkpoint correctly
-    for k in ["n_layer", "n_head", "n_embd", "block_size", "bias", "vocab_size"]:
-        model_args[k] = getattr(model.config, k)
-
-# crop down the model block size if desired, using model surgery
-if block_size < model.config.block_size:
-    model.crop_block_size(block_size)
-    model_args["block_size"] = block_size  # so that the checkpoint will have the right value
-
+# put model on device
 model.to(device)
 
-# initialize a GradScaler. If enabled=False scaler is a no-op
-scaler = torch.cuda.amp.GradScaler(enabled=(dtype == "float16"))
-# TODO: config.scaler()
+# wrap model into DDP container (no-op if not enabled)
+model = ddp_config.wrap(model)
 
-# optimizer
-optimizer = model.configure_optimizers(weight_decay, learning_rate, (beta1, beta2), device_type)
-if init_from == "resume":
-    optimizer.load_state_dict(checkpoint["optimizer"])
+# evaluate/training context (not used in generation?)
+context = config.NanoGPTContext(
+    ddp_enabled=ddp_config.enabled,
+    main_process=main_process,
+    amp_context=torch.amp.autocast(device_type="cuda", dtype=config.TORCH_TYPES[dtype])
+    if "cuda" in device
+    else nullcontext(),
+)
 
-# compile the model
-if compile:
-    print("compiling the model... (takes a ~minute)")
-    unoptimized_model = model
-    model = torch.compile(model)  # requires PyTorch 2.0
+# if command in ["train", "resume"]:
+#     trainer.train(model, data, optimizer, context)
+# elif command == "eval":
+#     model.eval()
+#     data.evaluate(model, eval_iters, context)
+# elif command == "generate":
+#     model.eval()
+#     model.generate(idx, gener_config, context)
 
-# wrap model into DDP container
-if ddp_config:
-    model = ddp_config.wrap(model)
-
-# logging
-if wandb_log and master_process:
-    import wandb
-
-    wandb.init(project=wandb_project, name=wandb_run_name, config=config)
-
-if eval_only:
-    evaluate(model, data, context, config.eval_iters)
-else:
-    train(
-        model,
-        data,
-        optimizer,
-        context,
-        config,
-        ddp=(ddp_config is not None),
-        master_process=master_process,
-    )
-
-if ddp_config:
+if ddp_config.enabled:
     destroy_process_group()
