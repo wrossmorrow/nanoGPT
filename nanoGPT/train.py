@@ -12,6 +12,7 @@ import torch
 from torch import nn
 
 from nanoGPT.config import CheckpointConfig, NanoGPTContext, TrainingConfig
+from nanoGPT.config import simpleiso
 from nanoGPT.data import DataLoader
 from nanoGPT.model import NanoGPT
 from nanoGPT.optim import save_checkpoint as optim_to_checkpoint
@@ -64,6 +65,10 @@ class NanoGPTTrainer:
         # get a "GradScaler"
         scaler = torch.cuda.amp.GradScaler(enabled=(self.config.dtype == "float16"))
 
+        filename = checkpoints.checkpoint_filename("status")
+        with open(filename, "w") as status:
+            status.write("time,iter,elapsed time,train loss,test loss,best loss,mfu\n")
+
         # training loop
         X, Y = data.get_batch("train")  # fetch the very first batch
 
@@ -79,6 +84,10 @@ class NanoGPTTrainer:
             if it % self.config.eval_interval == 0 and context.main_process:
                 dt = time() - ts
                 tl, vl = data.estimate_loss(model, context, self.config.eval_iters)
+                filename = checkpoints.checkpoint_filename("status")
+                with open(filename, "a") as status:
+                    status.write(f"{simpleiso()},{it},{dt:.6f},{tl:.4f},{vl:.4f},{best_val_loss:.4f},")
+                    status.write("-\n" if self.mfu is None else f"{self.mfu:0.4f}\n")
                 self.on_eval(it, dt, tl, vl, best_val_loss, self.mfu)
                 if vl < best_val_loss or self.config.always_save_checkpoint:
                     best_val_loss = vl
@@ -134,6 +143,10 @@ class NanoGPTTrainer:
         # completed max_iters training steps; always consider this an evaluate step
         dt = time() - ts
         tl, vl = data.estimate_loss(model, context, self.config.eval_iters)
+        filename = checkpoints.checkpoint_filename("status")
+        with open(filename, "a") as status:
+            status.write(f"{simpleiso()},{it},{dt:.6f},{tl:.4f},{vl:.4f},{best_val_loss:.4f},")
+            status.write("-\n" if self.mfu is None else f"{self.mfu:0.4f}\n")
         self.on_eval(it, dt, tl, vl, best_val_loss, self.mfu)
         if vl < best_val_loss or self.config.always_save_checkpoint:
             best_val_loss = vl

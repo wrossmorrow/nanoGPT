@@ -212,7 +212,7 @@ class TrainingConfig(Loadable, Dictable):
 
     # logging/wandb logging
     log_interval: int = field(default=1, metadata={"help": "Iteration interval for logging"})
-    log_dir: str = field(default="log", metadata={"help": "Directory where  logs are stored"})
+    log_dir: str = field(default="log", metadata={"help": "Directory where logs are stored"})
     wandb_log: bool = field(default=False, metadata={"help": "Use weights-and-biases logging"})  # disabled by default
     wandb_project: str = field(default="owt", metadata={"help": "Project for weights-and-biases logging"})
     wandb_run_name: str = field(
@@ -280,6 +280,9 @@ class CheckpointConfig(Loadable, Dictable):
     __conf_name__ = "checkpoint"
 
     checkpoint_dir: str = field(default="out", metadata={"help": "Directory to find files in"})
+    status_checkpoint: str = field(
+        default="status.csv", metadata={"help": "Status file to store evaluation updates into"}
+    )
     train_checkpoint: str = field(
         default="train.pt", metadata={"help": "Training checkpoint filename (in checkpoint_dir)"}
     )
@@ -291,7 +294,7 @@ class CheckpointConfig(Loadable, Dictable):
     )
 
     def checkpoint_filename(self, unit: str) -> str:
-        if unit in ["model", "train", "optim"]:
+        if unit in ["status", "model", "train", "optim"]:
             return path.join(self.checkpoint_dir, getattr(self, f"{unit}_checkpoint"))
         raise ValueError(f'Unknown checkpoint unit "{unit}"')
 
