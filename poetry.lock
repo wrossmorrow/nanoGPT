@@ -398,7 +398,7 @@ reference = 'default'
 
 [[package]]
 name = "huggingface-hub"
-version = "0.13.2"
+version = "0.13.3"
 description = "Client library to download and publish models, datasets and other repos on the huggingface.co hub"
 category = "main"
 optional = false
@@ -475,7 +475,7 @@ reference = 'default'
 
 [[package]]
 name = "lit"
-version = "15.0.7"
+version = "16.0.0"
 description = "A Software Testing Tool"
 category = "main"
 optional = false
@@ -1280,7 +1280,7 @@ reference = 'default'
 
 [[package]]
 name = "transformers"
-version = "4.27.1"
+version = "4.27.2"
 description = "State-of-the-art Machine Learning for JAX, PyTorch and TensorFlow"
 category = "main"
 optional = false
@@ -1429,6 +1429,7 @@ docker-pycreds = ">=0.4.0"
 GitPython = ">=1.0.0,<3.1.29 || >3.1.29"
 pathtools = "*"
 protobuf = [
+    {version = ">=3.12.0,<4.21.0 || >4.21.0,<5", markers = "python_version < \"3.9\" and sys_platform == \"linux\""},
     {version = ">=3.15.0,<4.21.0 || >4.21.0,<5", markers = "python_version == \"3.9\" and sys_platform == \"linux\""},
     {version = ">=3.19.0,<4.21.0 || >4.21.0,<5", markers = "python_version > \"3.9\" and sys_platform == \"linux\" or sys_platform != \"linux\""},
 ]
@@ -1487,8 +1488,8 @@ reference = 'default'
 
 [metadata]
 lock-version = "1.1"
-python-versions = "^3.9"
-content-hash = "9317989e58de678bc9fc0e4e47652e925ff8b5054e0915849aa5b72d709da3a3"
+python-versions = "^3.8"
+content-hash = "9e3210557cd96fd66d7cf730e23ad0fdc6099065bf4477e5fb548a413751f653"
 
 [metadata.files]
 aiohttp = [
@@ -1831,8 +1832,8 @@ gitpython = [
     {file = "GitPython-3.1.31.tar.gz", hash = "sha256:8ce3bcf69adfdf7c7d503e78fd3b1c492af782d58893b650adb2ac8912ddd573"},
 ]
 huggingface-hub = [
-    {file = "huggingface_hub-0.13.2-py3-none-any.whl", hash = "sha256:745c4cbd97a27fc5c1c6c89cb477662004c88bc3dd89bafc1a27ef24af77f944"},
-    {file = "huggingface_hub-0.13.2.tar.gz", hash = "sha256:246e8eb39b6e6e9d9d5846e4b56c265cdf1872f48ba5a13a1321295d371626f5"},
+    {file = "huggingface_hub-0.13.3-py3-none-any.whl", hash = "sha256:f73a298a55028575334f9670d86b8171a4dd890b320315f3ad28a20b9eb3b5bc"},
+    {file = "huggingface_hub-0.13.3.tar.gz", hash = "sha256:1f95f65c5e7aa76728701402f55b697ee8a8b50234adda91fbdbb81038fbcd21"},
 ]
 idna = [
     {file = "idna-3.4-py3-none-any.whl", hash = "sha256:90b77e79eaa3eba6de819a0c442c0b4ceefc341a7a2ab77d7562bf49f425c5c2"},
@@ -1847,7 +1848,7 @@ jinja2 = [
     {file = "Jinja2-3.1.2.tar.gz", hash = "sha256:31351a702a408a9e7595a8fc6150fc3f43bb6bf7e319770cbc0db9df9437e852"},
 ]
 lit = [
-    {file = "lit-15.0.7.tar.gz", hash = "sha256:ed08ac55afe714a193653df293ae8a6ee6c45d6fb11eeca72ce347d99b88ecc8"},
+    {file = "lit-16.0.0.tar.gz", hash = "sha256:3c4ac372122a1de4a88deb277b956f91b7209420a0bef683b1ab2d2b16dabe11"},
 ]
 markupsafe = [
     {file = "MarkupSafe-2.1.2-cp310-cp310-macosx_10_9_universal2.whl", hash = "sha256:665a36ae6f8f20a4676b53224e33d456a6f5a72657d9c83c2aa00765072f31f7"},
@@ -2569,8 +2570,8 @@ tqdm = [
     {file = "tqdm-4.65.0.tar.gz", hash = "sha256:1871fb68a86b8fb3b59ca4cdd3dcccbc7e6d613eeed31f4c332531977b89beb5"},
 ]
 transformers = [
-    {file = "transformers-4.27.1-py3-none-any.whl", hash = "sha256:b8cf844cbeaefd24b07f7ab1550af11b5d9cf0a7d09e5f4fedede9b15a3da2c0"},
-    {file = "transformers-4.27.1.tar.gz", hash = "sha256:05120d91e407c0d3db364f5d0710cdacccd15f67114b075f161a71535c133695"},
+    {file = "transformers-4.27.2-py3-none-any.whl", hash = "sha256:499a5ac4c1160f27b71bbd3c080e36ee3fd8cc2922aeaa52a8b163adf5ff4f19"},
+    {file = "transformers-4.27.2.tar.gz", hash = "sha256:940a6c0e04d89d14d012ee7214f8fd4e2aa2924a70a41106e0beb6ff25227752"},
 ]
 triton = [
     {file = "triton-2.0.0-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:8f05a7e64e4ca0565535e3d5d3405d7e49f9d308505bb7773d21fb26a4c008c2"},
