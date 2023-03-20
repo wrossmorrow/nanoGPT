@@ -133,27 +133,30 @@ class NanoGPTConfig(Loadable, Dictable):
     # n_attnd: int = field(init=False, metadata={"cli": False})
 
     batched_qkv: bool = field(
-        default=False, metadata={"help": "batch queries, keys, and values (all with or without bias)"}
+        default=True, metadata={"help": "batch queries, keys, and values (all with or without bias)"}
     )
 
     # for pretraining 0 is good, for finetuning try 0.1+
     dropout: float = field(default=0.0, metadata={"help": "Dropout fraction"})
 
     linear_layernorms: bool = field(
-        default=False, metadata={"help": 'Use "linear" layernorms with weight and (maybe) bias'}
+        default=True, metadata={"help": 'Use "linear" layernorms with weight and (maybe) bias'}
     )
-    ln_bias: bool = field(default=False, metadata={"help": "Use a bias inside Linear layers (not in attention heads)"})
-    ll_bias: bool = field(default=False, metadata={"help": "Use a bias inside LayerNorm modules"})
+    ln_bias: bool = field(default=True, metadata={"help": "Use a bias inside LayerNorm layers (only when using LinearLayerNorm)"})
+    ll_bias: bool = field(default=True, metadata={"help": "Use a bias inside Linear layers"})
 
     attn_scale: Optional[float] = field(
         default=None, metadata={"help": "Scale factor, to divide the key-query product by"}
     )
     attn_dropout: float = field(default=0.2, metadata={"help": "Distinct attention dropout"})
-    attn_bias: bool = field(default=False, metadata={"help": "Include a bias term in all attention head linear layers"})
+    attn_bias: bool = field(default=True, metadata={"help": "Include a bias term in all attention head linear layers"})
+    
+    # when unbatched ("split"), we can use biases in any of the terms 
+    # (another alternative for this is a string like "*", "qkvo", "qo" etc)
     q_bias: bool = field(default=False, metadata={"help": "Include a bias term in the queries"})
     k_bias: bool = field(default=False, metadata={"help": "Include a bias term in the keys"})
     v_bias: bool = field(default=False, metadata={"help": "Include a bias term in the values"})
-    o_bias: bool = field(default=False, metadata={"help": "Include a bias term in the concatenate-project step"})
+    o_bias: bool = field(default=True, metadata={"help": "Include a bias term in the concatenate-project step"})
 
     def __post_init__(self) -> None:
         assert self.n_embed % self.n_heads == 0
