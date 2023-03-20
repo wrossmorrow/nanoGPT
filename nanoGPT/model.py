@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os.path
 
-from math import sqrt
+from math import sqrt, log10
 from typing import Any, Optional, Tuple
 from warnings import warn
 
@@ -67,8 +67,9 @@ class NanoGPT(nn.Module):
             if pn.endswith("c_proj.weight"):
                 torch.nn.init.normal_(p, mean=0.0, std=0.02 / sqrt(2 * config.n_layer))
 
-        # report number of parameters
-        print("number of parameters: %.2fM" % (self.get_num_params() / 1e6,))
+        # report number of parameters (flexibly, if verbosely)
+        num_params, num_params_scale, num_params_sunit = self.get_verbose_num_params()
+        print(f"number of parameters: {num_params/num_params_scale:.2f}{num_params_sunit} ({num_params:,})")
 
     def get_num_params(self, non_embedding: bool = True) -> int:
         """
@@ -81,6 +82,14 @@ class NanoGPT(nn.Module):
         if non_embedding:
             n_params -= self.transformer.wpe.weight.numel()  # type: ignore
         return n_params
+
+    def get_verbose_num_params(self, non_embedding: bool = True) -> int:
+        num_params = self.get_num_params(non_embedding=non_embedding)
+        num_params_log10 = int(log10(num_params)) # num_params = 10^(num_params_log10)
+        num_params_order = (num_params_log10 - num_params_log10 % 3) // 3
+        num_params_scale = 10.0**(3*num_params_order)
+        num_params_sunit = {0: "", 1: "k", 2: "M", 3: "B", 4: "T"}[num_params_order]
+        return num_params, num_params_scale, num_params_sunit
 
     def _init_weights(self, module: nn.Module) -> None:
         if isinstance(module, nn.Linear):
@@ -102,18 +111,18 @@ class NanoGPT(nn.Module):
         # forward the GPT model itself
         tok_emb = self.transformer.wte(idx)  # token embeddings of shape (b, t, n_embed)
         pos_emb = self.transformer.wpe(pos)  # position embeddings of shape (1, t, n_embed)
-        x = self.transformer.drop(tok_emb + pos_emb)
+        X = self.transformer.drop(tok_emb + pos_emb)
         for block in self.transformer.heads:  # type: ignore
-            x = block(x)
-        x = self.transformer.ln_f(x)
+            X = block(x)
+        X = self.transformer.ln_f(X)
 
         if targets is not None:
             # if we are given some desired targets also calculate the loss
-            logits = self.lm_head(x)
+            logits = self.lm_head(X)
             loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
         else:
             # inference-time mini-optimization: only forward the lm_head on the very last position
-            logits = self.lm_head(x[:, [-1], :])  # note: using list [-1] to preserve the time dim
+            logits = self.lm_head(X[:, [-1], :])  # note: using list [-1] to preserve the time dim
             loss = None
 
         return logits, loss
