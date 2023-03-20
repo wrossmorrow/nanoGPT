@@ -304,9 +304,10 @@ class FannedGeLU(nn.Module):
         self.c_proj = nn.Linear(fanout * n_embed, n_embed, bias=bias)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.c_fc(x)
-        x = new_gelu(x)
-        x = self.c_proj(x)
-        x = self.dropout(x)
-        return x
+    def forward(self, X: torch.Tensor) -> torch.Tensor:
+        # X = self.c_fc(X)
+        # X = new_gelu(X)
+        # X = self.c_proj(X)
+        # X = self.dropout(X)
+        # include residual connection here so we can use Identity in the block
+        return X + self.dropout(self.c_proj(new_gelu(self.c_fc(X))))

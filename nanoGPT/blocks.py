@@ -40,14 +40,16 @@ class NanoGPTBlock(nn.Module):
                 o_bias=config.o_bias,
             )
         )
-        self.ln_2 = (
-            layers.LinearLayerNorm(config.n_embed, bias=config.ln_bias)
-            if config.linear_layernorms
-            else layers.LayerNorm()
-        )
-        self.mlp = layers.FannedGeLU(config.n_embed, bias=config.ll_bias)
+        if config.attention_only:
+            self.ln_2, self.mlp = nn.Identity(), nn.Identity()
+        else:
+            self.ln_2 = (
+                layers.LinearLayerNorm(config.n_embed, bias=config.ln_bias)
+                if config.linear_layernorms
+                else layers.LayerNorm()
+            )
+            self.mlp = layers.FannedGeLU(config.n_embed, fanout=config.ll_fanout, bias=config.ll_bias)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = x + self.attn(self.ln_1(x))
-        x = x + self.mlp(self.ln_2(x))
-        return x
+    def forward(self, X: torch.Tensor) -> torch.Tensor:
+        X = X + self.attn(self.ln_1(X))
+        return self.mlp(self.ln_2(X))

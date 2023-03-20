@@ -145,13 +145,18 @@ class NanoGPTConfig(Loadable, Dictable):
     ln_bias: bool = field(
         default=True, metadata={"help": "Use a bias inside LayerNorm layers (only when using LinearLayerNorm)"}
     )
-    ll_bias: bool = field(default=True, metadata={"help": "Use a bias inside Linear layers"})
+
+    ll_fanout: int = field(default=4, metadata={"help": "Fanout factor for FeedForward Linear layers"})
+    ll_bias: bool = field(default=True, metadata={"help": "Use a bias inside FeedForward Linear layers"})
 
     attn_scale: Optional[float] = field(
         default=None, metadata={"help": "Scale factor, to divide the key-query product by"}
     )
     attn_dropout: float = field(default=0.2, metadata={"help": "Distinct attention dropout"})
     attn_bias: bool = field(default=True, metadata={"help": "Include a bias term in all attention head linear layers"})
+    attention_only: bool = field(
+        default=False, metadata={"help": "Only use the attention head, not the Linear in a block"}
+    )
 
     # when unbatched ("split"), we can use biases in any of the terms
     # (another alternative for this is a string like "*", "qkvo", "qo" etc)
