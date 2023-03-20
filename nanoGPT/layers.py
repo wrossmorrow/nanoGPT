@@ -203,12 +203,12 @@ class BatchedCausalSelfAttention(nn.Module):
         self.resid_dropout = nn.Dropout(dropout)
 
         # flash attention make GPU go brrrrr but support is only in PyTorch >= 2.0
-        self.flash = hasattr(torch.nn.functional, "scaled_dot_product_attention")
-        if not self.flash:
-            warn("WARNING: using slow attention. Flash Attention requires PyTorch >= 2.0")
-            self.mask = torch.tril(torch.ones(n_block, n_block))
-            self.mask = self.mask.view(1, 1, n_block, n_block)
-            self.register_buffer("bias", self.mask)
+        # self.flash = hasattr(torch.nn.functional, "scaled_dot_product_attention")
+        # if not self.flash:
+        #     warn("WARNING: using slow attention. Flash Attention requires PyTorch >= 2.0")
+        self.mask = torch.tril(torch.ones(n_block, n_block))
+        self.mask = self.mask.view(1, 1, n_block, n_block)
+        self.register_buffer("bias", self.mask)
 
     def _get_dims(self, X: torch.Tensor) -> Tuple[int, int, int, int, int]:
         B, T, C = X.size()  # batch size, sequence length/block size, embedding dim
@@ -236,6 +236,60 @@ class BatchedCausalSelfAttention(nn.Module):
         Y = self.c_proj(Y)
         Y = self.resid_dropout(Y)
 
+        return Y
+
+
+class FlashCausalSelfAttention(nn.Module):
+    def __init__(
+        self,
+        n_block: int,
+        n_embed: int,
+        n_heads: int,
+        scale: Optional[float] = None,
+        dropout: float = 0.2,
+        bias: bool = False,
+    ) -> None:
+
+        # flash attention make GPU go brrrrr but support is only in PyTorch >= 2.0
+        assert hasattr(torch.nn.functional, "scaled_dot_product_attention"), (
+            "Current environment does not appear to have access to flash attention"
+        )
+
+        super().__init__()
+
+        self.n_embed = n_embed
+        self.n_heads = n_heads
+        self.dropout = dropout
+        self.quadf_scale = sqrt(n_embed / n_heads) if scale is None else scale
+
+        # key, query, value projections for all heads, but in a batch
+        self.c_attn = nn.Linear(n_embed, 3 * n_embed, bias=bias)
+
+        # output projection
+        self.c_proj = nn.Linear(n_embed, n_embed, bias=bias)
+
+        # regularization
+        self.attn_dropout = nn.Dropout(dropout)
+        self.resid_dropout = nn.Dropout(dropout)
+
+    def _get_dims(self, X: torch.Tensor) -> Tuple[int, int, int, int, int]:
+        B, T, C = X.size()  # batch size, sequence length/block size, embedding dim
+        H = self.n_heads
+        D = C // H  # also config.n_attno...
+        return B, H, T, C, D
+
+    def forward(self, X: torch.Tensor) -> torch.Tensor:
+        B, H, T, C, D = self._get_dims(X)
+
+        # calculate query, key, values for all heads in batch and move head
+        # forward to be the batch dim
+        Q, K, V = self.c_attn(X).split(self.n_embed, dim=2)
+        Q = Q.view(B, T, H, D).transpose(1, 2)  # (B, nh, T, hs)
+        K = K.view(B, T, H, D).transpose(1, 2)  # (B, nh, T, hs)
+        V = V.view(B, T, H, D).transpose(1, 2)  # (B, nh, T, hs)
+
+        Y = F.scaled_dot_product_attention(Q, K, V, attn_mask=None, dropout_p=self.dropout, is_causal=True)
+        
         return Y
 
 

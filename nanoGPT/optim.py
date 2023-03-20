@@ -37,7 +37,7 @@ def configure_optimizer(model: nn.Module, config: TrainingConfig, device: str) -
     # experience regularizing weight decay
     decay, no_decay = set(), set()
     do_decay = (nn.Linear,)
-    dont_decay = (nn.LayerNorm, layers.LayerNorm, nn.Embedding)
+    dont_decay = (nn.LayerNorm, layers.LinearLayerNorm, layers.LayerNorm, nn.Embedding)
     for mn, m in model.named_modules():
         for pn, p in m.named_parameters():
             fpn = f"{mn}.{pn}" if mn else pn  # full param name
