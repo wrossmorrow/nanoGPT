@@ -56,7 +56,6 @@ def run() -> None:
     # Read CLI args, parse them into configs, and validate for commands
 
     command, configs, args = DefaultCLI.parse_config()
-    print(args)
 
     chkpt_config = cast(config.CheckpointConfig, configs[config.CheckpointConfig.__name__])
     datas_config = cast(config.DatasetConfig, configs[config.DatasetConfig.__name__])
@@ -69,8 +68,6 @@ def run() -> None:
         print("Training a new model from scratch")
         model_config = cast(config.NanoGPTConfig, configs[config.NanoGPTConfig.__name__])
         train_config = cast(config.TrainingConfig, configs[config.TrainingConfig.__name__])
-        print(model_config)
-        print(train_config)
 
     elif command == "eval":  # evaluate an existing model
         print("Evaluating model from checkpoint")
