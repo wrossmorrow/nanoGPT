@@ -4,6 +4,7 @@ import os.path
 
 from math import cos, pi
 from time import time
+from datetime import datetime
 from typing import Any, Optional, Union
 from typing import cast  # noqa: F401
 from warnings import warn
@@ -12,10 +13,13 @@ import torch
 from torch import nn
 
 from nanoGPT.config import CheckpointConfig, NanoGPTContext, TrainingConfig
-from nanoGPT.config import simpleiso
 from nanoGPT.data import DataLoader
 from nanoGPT.model import NanoGPT
 from nanoGPT.optim import save_checkpoint as optim_to_checkpoint
+
+
+def isonow() -> str:
+    return datetime.now().isoformat()
 
 
 class NanoGPTTrainer:
@@ -67,7 +71,7 @@ class NanoGPTTrainer:
 
         filename = checkpoints.checkpoint_filename("status")
         with open(filename, "w") as status:
-            status.write("time,iter,elapsed time,train loss,test loss,best loss,mfu\n")
+            status.write("curr time,iter num,last iter us,train loss,test loss,best loss,mfu\n")
 
         # training loop
         X, Y = data.get_batch("train")  # fetch the very first batch
@@ -82,11 +86,11 @@ class NanoGPTTrainer:
 
             # evaluate step: evaluate both train/test loss and write checkpoints
             if it % self.config.eval_interval == 0 and context.main_process:
-                dt = time() - ts
+                dt = 1.0e6 * (time() - ts)
                 tl, vl = data.estimate_loss(model, context, self.config.eval_iters)
                 filename = checkpoints.checkpoint_filename("status")
                 with open(filename, "a") as status:
-                    status.write(f"{simpleiso()},{it},{dt:.6f},{tl:.4f},{vl:.4f},{best_val_loss:.4f},")
+                    status.write(f"{isonow()},{it},{dt:.6f},{tl:.4f},{vl:.4f},{best_val_loss:.4f},")
                     status.write("-\n" if self.mfu is None else f"{self.mfu:0.4f}\n")
                 self.on_eval(it, dt, tl, vl, best_val_loss, self.mfu)
                 if vl < best_val_loss or self.config.always_save_checkpoint:
@@ -145,7 +149,7 @@ class NanoGPTTrainer:
         tl, vl = data.estimate_loss(model, context, self.config.eval_iters)
         filename = checkpoints.checkpoint_filename("status")
         with open(filename, "a") as status:
-            status.write(f"{simpleiso()},{it},{dt:.6f},{tl:.4f},{vl:.4f},{best_val_loss:.4f},")
+            status.write(f"{isonow()},{it},{dt:.6f},{tl:.4f},{vl:.4f},{best_val_loss:.4f},")
             status.write("-\n" if self.mfu is None else f"{self.mfu:0.4f}\n")
         self.on_eval(it, dt, tl, vl, best_val_loss, self.mfu)
         if vl < best_val_loss or self.config.always_save_checkpoint:
