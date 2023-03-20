@@ -76,19 +76,15 @@ def configure_optimizer(model: nn.Module, config: TrainingConfig, device: str) -
         {"params": [param_dict[pn] for pn in sorted(list(no_decay))], "weight_decay": 0.0},
     ]
 
-    learning_rate = config.learning_rate
-    beta1, beta2 = config.beta1, config.beta2
-
     # new PyTorch nightly has a new 'fused' option for AdamW that is much faster
     extra_args = {}
     if ("cuda" in device) and ("fused" in signature(torch.optim.AdamW).parameters):
         warn("using fused AdamW")
         extra_args["fused"] = True
-        learning_rate = torch.Tensor([learning_rate]).to(device)
-        beta1 = torch.Tensor([beta1]).to(device)
-        beta2 = torch.Tensor([beta2]).to(device)
 
     # return optimizer object
+    learning_rate = config.learning_rate
+    beta1, beta2 = config.beta1, config.beta2
     return torch.optim.AdamW(optim_groups, lr=learning_rate, betas=(beta1, beta2), **extra_args)
 
 

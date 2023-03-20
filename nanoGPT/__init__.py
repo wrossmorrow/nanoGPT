@@ -130,7 +130,6 @@ def run() -> None:
     elif command == "train":
         model = NanoGPT(model_config)
         trainer = NanoGPTTrainer(train_config)
-        optimizer = configure_optimizer(model, train_config, device)
 
         n_block = model.config.n_block
         n_batch = trainer.config.n_batch
@@ -146,8 +145,6 @@ def run() -> None:
         # to "finetune"?
         #
         # trainer.overrides(**(train_config.dict() if train_config else {}))  # update if any passed
-        optimizer = configure_optimizer(model, trainer.config, device)
-        load_checkpoint(chkpt_config, device, optimizer)
 
         n_block = model.config.n_block
         n_batch = trainer.config.n_batch
@@ -156,7 +153,6 @@ def run() -> None:
     elif command == "finetune":
         model = NanoGPT.from_checkpoint(chkpt_config, device)
         trainer = NanoGPTTrainer(train_config)
-        optimizer = configure_optimizer(model, train_config, device)
 
         n_block = model.config.n_block
         n_batch = trainer.config.n_batch
@@ -182,6 +178,14 @@ def run() -> None:
 
     # wrap model into DDP container (no-op if not enabled)
     model = ddp_config.wrap(model)
+
+    # define optimizer (if need) here, after to(device); fused Adamw
+    # optimizer in particular may complain
+    if command in ["train", "finetune"]:
+        optimizer = configure_optimizer(model, train_config, device)
+    elif command == "resume":
+        optimizer = configure_optimizer(model, trainer.config, device)
+        load_checkpoint(chkpt_config, device, optimizer)
 
     # evaluate/training context (not used in generation?)
     context = config.NanoGPTContext(
