@@ -5,7 +5,6 @@ from __future__ import annotations
 
 from math import sqrt
 from typing import Optional, Tuple
-from warnings import warn
 
 import torch
 import torch.nn as nn
@@ -202,10 +201,7 @@ class BatchedCausalSelfAttention(nn.Module):
         self.attn_dropout = nn.Dropout(dropout)
         self.resid_dropout = nn.Dropout(dropout)
 
-        # flash attention make GPU go brrrrr but support is only in PyTorch >= 2.0
-        # self.flash = hasattr(torch.nn.functional, "scaled_dot_product_attention")
-        # if not self.flash:
-        #     warn("WARNING: using slow attention. Flash Attention requires PyTorch >= 2.0")
+        # causal mask
         self.mask = torch.tril(torch.ones(n_block, n_block))
         self.mask = self.mask.view(1, 1, n_block, n_block)
         self.register_buffer("bias", self.mask)
@@ -239,6 +235,7 @@ class BatchedCausalSelfAttention(nn.Module):
         return Y
 
 
+# TODO: subclass from Batched?
 class FlashCausalSelfAttention(nn.Module):
     def __init__(
         self,
@@ -251,9 +248,9 @@ class FlashCausalSelfAttention(nn.Module):
     ) -> None:
 
         # flash attention make GPU go brrrrr but support is only in PyTorch >= 2.0
-        assert hasattr(torch.nn.functional, "scaled_dot_product_attention"), (
-            "Current environment does not appear to have access to flash attention"
-        )
+        assert hasattr(
+            torch.nn.functional, "scaled_dot_product_attention"
+        ), "Current environment does not appear to have access to flash attention"
 
         super().__init__()
 
@@ -289,7 +286,7 @@ class FlashCausalSelfAttention(nn.Module):
         V = V.view(B, T, H, D).transpose(1, 2)  # (B, nh, T, hs)
 
         Y = F.scaled_dot_product_attention(Q, K, V, attn_mask=None, dropout_p=self.dropout, is_causal=True)
-        
+
         return Y
 
 

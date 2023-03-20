@@ -142,7 +142,9 @@ class NanoGPTConfig(Loadable, Dictable):
     linear_layernorms: bool = field(
         default=True, metadata={"help": 'Use "linear" layernorms with weight and (maybe) bias'}
     )
-    ln_bias: bool = field(default=True, metadata={"help": "Use a bias inside LayerNorm layers (only when using LinearLayerNorm)"})
+    ln_bias: bool = field(
+        default=True, metadata={"help": "Use a bias inside LayerNorm layers (only when using LinearLayerNorm)"}
+    )
     ll_bias: bool = field(default=True, metadata={"help": "Use a bias inside Linear layers"})
 
     attn_scale: Optional[float] = field(
@@ -150,8 +152,8 @@ class NanoGPTConfig(Loadable, Dictable):
     )
     attn_dropout: float = field(default=0.2, metadata={"help": "Distinct attention dropout"})
     attn_bias: bool = field(default=True, metadata={"help": "Include a bias term in all attention head linear layers"})
-    
-    # when unbatched ("split"), we can use biases in any of the terms 
+
+    # when unbatched ("split"), we can use biases in any of the terms
     # (another alternative for this is a string like "*", "qkvo", "qo" etc)
     q_bias: bool = field(default=False, metadata={"help": "Include a bias term in the queries"})
     k_bias: bool = field(default=False, metadata={"help": "Include a bias term in the keys"})
