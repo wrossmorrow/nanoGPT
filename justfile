@@ -50,6 +50,10 @@ verify: format lint types test
 run *FLAGS:
     poetry run python -m {{name}} {{FLAGS}}
 
+# run under torch
+torchrun *FLAGS:
+    poetry run torchrun nanoGPT/__main__.py {{FLAGS}}
+
 # build package
 build: 
     poetry build

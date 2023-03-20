@@ -5,7 +5,7 @@ from typing import Any, Dict, get_type_hints, List, Optional, Tuple
 
 from torch.cuda import is_available as cuda_is_available
 
-from . import config
+from nanoGPT import config
 
 
 @dataclass

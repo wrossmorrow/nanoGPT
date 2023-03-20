@@ -18,9 +18,9 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
-from . import layers
-from . import blocks
-from .config import CheckpointConfig, GenerateConfig, NanoGPTConfig, NanoGPTContext
+from nanoGPT import layers
+from nanoGPT import blocks
+from nanoGPT.config import CheckpointConfig, GenerateConfig, NanoGPTConfig, NanoGPTContext
 
 
 class NanoGPT(nn.Module):
@@ -109,12 +109,17 @@ class NanoGPT(nn.Module):
         pos = torch.arange(0, T, dtype=torch.long, device=device).unsqueeze(0)  # shape (1, T)
 
         # forward the GPT model itself
-        tok_emb = self.transformer.wte(idx)  # token embeddings of shape B x T x C
-        pos_emb = self.transformer.wpe(pos)  # position embeddings of shape 1 x T x C
-        X = self.transformer.drop(tok_emb + pos_emb)
-        for block in self.transformer.heads:  # type: ignore
-            X = block(X)
-        X = self.transformer.ln_f(X)
+        # * Token embeddings of shape B x T x C (type issue: "Tensor" is not callable)
+        # * Position embeddings of shape 1 x T x C (type issue: "Tensor" is not callable)
+        # * Dropout (type issue: "Tensor" is not callable)
+        # * All the attention blocks (type issues: Module has no attr __iter__, "Tensor" is not callable)
+        # * LayerNorm (type issue: "Tensor" is not callable)
+        tok_emb = self.transformer.wte(idx)  # type: ignore [operator]
+        pos_emb = self.transformer.wpe(pos)  # type: ignore [operator]
+        X = self.transformer.drop(tok_emb + pos_emb)  # type: ignore [operator]
+        for block in self.transformer.heads:  # type: ignore [union-attr]
+            X = block(X)  # type: ignore [operator]
+        X = self.transformer.ln_f(X)  # type: ignore [operator]
 
         if targets is not None:
             # if we are given some desired targets also calculate the loss

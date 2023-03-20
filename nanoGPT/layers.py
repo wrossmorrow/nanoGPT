@@ -11,7 +11,7 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
-from .activations import new_gelu
+from nanoGPT.activations import new_gelu
 
 
 class LayerNorm(nn.Module):

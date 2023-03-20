@@ -8,8 +8,8 @@ from typing import Dict, Optional
 import torch
 from transformers import GPT2LMHeadModel  # huggingface model
 
-from .config import NanoGPTConfig
-from .model import NanoGPT
+from nanoGPT.config import NanoGPTConfig
+from nanoGPT.model import NanoGPT
 
 
 def from_pretrained_gpt2(size: str = "default", override_args: Optional[Dict] = None) -> NanoGPT:

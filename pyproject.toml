@@ -6,6 +6,9 @@ readme = "README.md"
 packages = [{ include = "nanoGPT" }]
 authors = ["W. Ross Morrow <morrowwr@gmail.com>"]
 
+[tool.poetry.scripts]
+nanogpt = 'nanoGPT:run'
+
 [[tool.poetry.source]]
 name = 'default'
 url = 'https://pypi.python.org/simple'

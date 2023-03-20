@@ -10,7 +10,7 @@ from typing import Tuple
 import torch
 import numpy as np
 
-from .config import DatasetConfig, NanoGPTContext
+from nanoGPT.config import DatasetConfig, NanoGPTContext
 
 
 class DataLoader:

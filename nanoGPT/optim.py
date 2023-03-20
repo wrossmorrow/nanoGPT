@@ -9,8 +9,8 @@ from warnings import warn
 import torch
 from torch import nn
 
-from . import layers
-from .config import CheckpointConfig, TrainingConfig
+from nanoGPT import layers
+from nanoGPT.config import CheckpointConfig, TrainingConfig
 
 
 def configure_optimizer(model: nn.Module, config: TrainingConfig, device: str) -> torch.optim.Optimizer:

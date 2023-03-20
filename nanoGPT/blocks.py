@@ -6,8 +6,8 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-from . import layers
-from .config import NanoGPTConfig
+from nanoGPT import layers
+from nanoGPT.config import NanoGPTConfig
 
 
 class NanoGPTBlock(nn.Module):

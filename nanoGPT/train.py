@@ -11,10 +11,10 @@ from warnings import warn
 import torch
 from torch import nn
 
-from .config import CheckpointConfig, NanoGPTContext, TrainingConfig
-from .data import DataLoader
-from .model import NanoGPT
-from .optim import save_checkpoint as optim_to_checkpoint
+from nanoGPT.config import CheckpointConfig, NanoGPTContext, TrainingConfig
+from nanoGPT.data import DataLoader
+from nanoGPT.model import NanoGPT
+from nanoGPT.optim import save_checkpoint as optim_to_checkpoint
 
 
 class NanoGPTTrainer:
