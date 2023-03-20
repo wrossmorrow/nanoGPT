@@ -18,6 +18,7 @@ class CLIArgument:
     name: str
     type: Any
     required: bool = False
+    # choices: Optional[List[Any]] = None  # TODO: enable "choices" (may conflict with other args)
     default: Optional[Any] = None
     help: str = "-"
 
@@ -47,11 +48,10 @@ class CLICommand:
     def parse_config(self, args: argparse.Namespace) -> List[Any]:
         confs = []
         for cc in self.conf_classes:
+            # get the non-default-value arguments supplied for this config class
             cc_fields = [f.name for f in fields(cc) if f.init and f.metadata.get("cli", True)]
-            conf_args = {
-                fld: getattr(args, fld) for fld in cc_fields if not isinstance(getattr(args, fld), DefaultValue)
-            }
-            conf = cc.from_file(args.config_file, **conf_args) if args.config_file else cc(**conf_args)
+            cc_args = {fld: getattr(args, fld) for fld in cc_fields if not isinstance(getattr(args, fld), DefaultValue)}
+            conf = cc.from_file(args.config_file, **cc_args) if args.config_file else cc(**cc_args)
             confs.append(conf)
         return confs
 
@@ -124,13 +124,14 @@ default_cmd_configs = {
     "eval": [config.DatasetConfig, config.CheckpointConfig, config.EvaluateConfig],
     "train": [config.DatasetConfig, config.CheckpointConfig, config.NanoGPTConfig, config.TrainingConfig],
     "resume": [config.DatasetConfig, config.CheckpointConfig, config.TrainingConfig],
+    "finetune": [config.DatasetConfig, config.CheckpointConfig, config.TrainingConfig],
     "generate": [config.DatasetConfig, config.GenerateConfig],
 }
 
 DeviceCLIArg = CLIArgument(
     name="device",
     type=str,
-    # choices=["cpu", "cuda"],  # ...
+    # choices=["cpu", "cuda", "mps"],  # TODO: enable "choices" (may conflict with other args)
     default="cuda" if cuda_is_available() else "cpu",
     help="Device to use for model evaluation or training",
 )

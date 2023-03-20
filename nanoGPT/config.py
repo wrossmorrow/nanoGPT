@@ -26,6 +26,23 @@ TORCH_TYPES: Dict[str, torch.dtype] = {
     "float16": torch.float16,
 }
 
+SHARED_GPT2_CONF: Dict[str, Union[bool, int, str, float]] = {
+    "vocab_size": 50257,
+    "n_block": 1024,
+    "linear_layernorms": True,
+    "ln_bias": True,
+    "ll_bias": True,
+    "batched_qkv": True,
+    "attn_bias": True,
+}
+
+GPT2_CONF: Dict[str, Dict[str, Union[bool, int, str, float]]] = {
+    "gpt2-default": {"n_layer": 12, "n_heads": 12, "n_embed": 768, **SHARED_GPT2_CONF},  # 124M params
+    "gpt2-medium": {"n_layer": 24, "n_heads": 16, "n_embed": 1024, **SHARED_GPT2_CONF},  # 350M params
+    "gpt2-large": {"n_layer": 36, "n_heads": 20, "n_embed": 1280, **SHARED_GPT2_CONF},  # 774M params
+    "gpt2-xl": {"n_layer": 48, "n_heads": 25, "n_embed": 1600, **SHARED_GPT2_CONF},  # 1.556B params
+}
+
 
 def simpleiso() -> str:
     return dt.now().isoformat().split(".")[0].replace(":", "-")
@@ -119,9 +136,12 @@ class NanoGPTConfig(Loadable, Dictable):
         default=False, metadata={"help": "batch queries, keys, and values (all with or without bias)"}
     )
 
-    dropout: float = field(
-        default=0.0, metadata={"help": "Dropout fraction"}
-    )  # for pretraining 0 is good, for finetuning try 0.1+
+    # for pretraining 0 is good, for finetuning try 0.1+
+    dropout: float = field(default=0.0, metadata={"help": "Dropout fraction"})
+
+    linear_layernorms: bool = field(
+        default=False, metadata={"help": 'Use "linear" layernorms with weight and (maybe) bias'}
+    )
     ln_bias: bool = field(default=False, metadata={"help": "Use a bias inside Linear layers (not in attention heads)"})
     ll_bias: bool = field(default=False, metadata={"help": "Use a bias inside LayerNorm modules"})
 
@@ -145,31 +165,16 @@ class NanoGPTConfig(Loadable, Dictable):
     @staticmethod
     def gpt2(size: str = "default") -> NanoGPTConfig:
         """
-        Return a GPT-2 like configuration, in our language. Note this
-        only returns _configuration_ roughly equivalent to what GPT-2
-        would use, not any parameters.
+        Return a GPT-2 like configuration, in our language.
+
+        NOTE: This only returns _configuration_ roughly equivalent to what
+        GPT-2 would use, NOT any parameters unlike the setup in Karpathy's
+        nanoGPT. (TODO: may reinstate that, but it seems unecessary.)
+
+        TODO: typing is picky here; ignore for now
         """
-
         assert size in ["default", "medium", "large", "xl"], f'Unknown GPT size "{size}"'
-
-        # n_layer, n_head and n_embed are determined from model_type
-        gpt_config = {
-            "vocab_size": 50257,
-            "n_block": 1024,
-            "ln_bias": True,
-            "ll_bias": True,
-            "batched_qkv": True,
-            "attn_bias": True,
-        }
-
-        kwargs = {
-            "gpt2-default": {"n_layer": 12, "n_head": 12, "n_embed": 768, **gpt_config},  # 124M params
-            "gpt2-medium": {"n_layer": 24, "n_head": 16, "n_embed": 1024, **gpt_config},  # 350M params
-            "gpt2-large": {"n_layer": 36, "n_head": 20, "n_embed": 1280, **gpt_config},  # 774M params
-            "gpt2-xl": {"n_layer": 48, "n_head": 25, "n_embed": 1600, **gpt_config},  # 1.556B params
-        }[f"gpt2-{size}"]
-
-        return NanoGPTConfig(**kwargs)
+        return NanoGPTConfig(**(GPT2_CONF[f"gpt2-{size}"]))  # type: ignore
 
 
 @dataclass
@@ -280,6 +285,11 @@ class CheckpointConfig(Loadable, Dictable):
         default="optim.pt", metadata={"help": "Optimizer checkpoint filename (in checkpoint_dir)"}
     )
 
+    def checkpoint_filename(self, unit: str) -> str:
+        if unit in ["model", "train", "optim"]:
+            return path.join(self.checkpoint_dir, getattr(self, f"{unit}_checkpoint"))
+        raise ValueError(f'Unknown checkpoint unit "{unit}"')
+
     def save(
         self,
         iter_num: int,
@@ -344,6 +354,8 @@ class GenerateConfig(Loadable, Dictable):
         default="bfloat16",
         metadata={"help": "torch datatype to use", "choices": ["float32", "bfloat16", "float16"]},
     )
+
+    prompt: str = field(default="\n", metadata={"help": 'Text prompt for generation ("document completion")'})
     max_new_tokens: int = field(default=500, metadata={"help": "Maximum new tokens to generate"})
     temperature: float = field(default=1.0, metadata={"help": "'Temperature'"})
     top_k: Optional[int] = field(default=None, metadata={"help": "'Top k'"})

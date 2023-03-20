@@ -36,7 +36,11 @@ class NanoGPT(nn.Module):
                 "wpe": nn.Embedding(config.n_block, config.n_embed),
                 "drop": nn.Dropout(config.dropout),
                 "heads": nn.ModuleList([blocks.NanoGPTBlock(config) for _ in range(config.n_layer)]),
-                "ln_f": layers.LayerNorm(config.n_embed, bias=config.ln_bias),
+                "ln_f": (
+                    layers.LinearLayerNorm(config.n_embed, bias=config.ln_bias)
+                    if config.linear_layernorms
+                    else layers.LayerNorm()
+                ),
             }
         )
 
@@ -150,6 +154,17 @@ class NanoGPT(nn.Module):
             idx = torch.cat((idx, idx_next), dim=1)
 
         return idx
+
+    def to_checkpoint(self, iter_num: int, best_val_loss: float, config: CheckpointConfig) -> None:
+        torch.save(
+            {
+                "iter_num": iter_num,
+                "best_val_loss": best_val_loss,
+                "model_config": self.config.dict(),
+                "model_state": self.state_dict(),
+            },
+            config.checkpoint_filename("model"),
+        )
 
     @staticmethod
     def from_checkpoint(config: CheckpointConfig, device: str) -> NanoGPT:

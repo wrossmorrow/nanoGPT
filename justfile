@@ -36,7 +36,7 @@ lint:
 
 # run mypy static type analysis
 types: 
-    poetry run mypy {{name}} tests
+    poetry run mypy {{name}} tests --show-error-codes
 
 # run all unit tests
 test *FLAGS:

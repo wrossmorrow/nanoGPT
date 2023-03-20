@@ -15,18 +15,30 @@ from .activations import new_gelu
 
 
 class LayerNorm(nn.Module):
+    """LayerNorm without any weights or biases."""
+
+    def __init__(self, eps: float = 1.0e-5) -> None:
+        super().__init__()
+        self.eps = eps
+
+    def forward(self, X: torch.Tensor) -> torch.Tensor:
+        return F.layer_norm(X, (X.shape[-1],), eps=self.eps)
+
+
+class LinearLayerNorm(nn.Module):
     """
-    LayerNorm but with an optional bias. PyTorch doesn't support
-    simply bias=False. Weights/biases should be optional.
+    LayerNorm but with weights and (optional) bias. PyTorch doesn't
+    support simply `bias=False`.
     """
 
-    def __init__(self, ndim: int, bias: bool) -> None:
+    def __init__(self, ndim: int, bias: bool, eps: float = 1.0e-5) -> None:
         super().__init__()
         self.weight = nn.Parameter(torch.ones(ndim))
         self.bias = nn.Parameter(torch.zeros(ndim)) if bias else None
+        self.eps = eps
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return F.layer_norm(x, self.weight.shape, self.weight, self.bias, 1.0e-5)
+    def forward(self, X: torch.Tensor) -> torch.Tensor:
+        return F.layer_norm(X, self.weight.shape, self.weight, self.bias, self.eps)
 
 
 class QuadraticForm(nn.Module):
@@ -49,10 +61,15 @@ class QuadraticForm(nn.Module):
 
     def reset_parameters(self) -> None:
         # Mimic torch.nn.Linear parameter initialization:
-        # https://github.com/pytorch/pytorch/blob/7324aef9a86babd43b037b14b4cfef234e4c5db2/torch/nn/modules/linear.py#L107
+        #
+        #   https://github.com/pytorch/pytorch/blob/ \
+        #       7324aef9a86babd43b037b14b4cfef234e4c5db2/\
+        #       torch/nn/modules/linear.py#L107
         #
         # Based on method described by Kaiming, et al. (2015):
-        # https://arxiv.org/abs/1502.01852
+        #
+        #   https://arxiv.org/abs/1502.01852
+        #
         nn.init.kaiming_uniform_(self.weight, a=sqrt(5))
         # TODO: stronger justification for using this approach
 

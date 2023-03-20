@@ -52,13 +52,12 @@ from .train import NanoGPTTrainer
 # Read CLI args, parse them into configs, and validate for commands
 
 command, configs, args = DefaultCLI.parse_config()
-
 chkpt_config = cast(config.CheckpointConfig, configs[config.CheckpointConfig.__name__])
 datas_config = cast(config.DatasetConfig, configs[config.DatasetConfig.__name__])
-evalm_config: config.EvaluateConfig
-gener_config: config.GenerateConfig
-model_config: config.NanoGPTConfig
-train_config: config.TrainingConfig
+evalm_config: config.EvaluateConfig  # declare for typing, initialize only if needed
+gener_config: config.GenerateConfig  # declare for typing, initialize only if needed
+model_config: config.NanoGPTConfig  # declare for typing, initialize only if needed
+train_config: config.TrainingConfig  # declare for typing, initialize only if needed
 
 if command == "train":  # init a new model from scratch and train it
     print("Training a new model from scratch")
@@ -71,8 +70,9 @@ elif command == "eval":  # evaluate an existing model
 
 elif command == "resume":  # resume training from a checkpoint.
     print("Resuming training from checkpoint")
-    # TODO: figure out how to assign override values... a core function of resuming
-    # is likely to be changing training parameters?
+    # TODO: figure out how to assign override values... A core capability of resuming
+    # training might be to change training parameters? How would that differ from
+    # "fine tuning"?
     # train_config = cast(config.TrainingConfig, configs[config.TrainingConfig.__name__])
 
 elif command == "finetune":  # fine tune a model, using a checkpoint from another
@@ -124,7 +124,7 @@ if command == "eval":
     n_batch = evalm_config.n_batch
     dtype = evalm_config.dtype
 
-elif command in ["train", "finetune"]:
+elif command == "train":
     model = NanoGPT(model_config)
     trainer = NanoGPTTrainer(train_config)
     optimizer = configure_optimizer(model, train_config, device)
@@ -149,7 +149,7 @@ elif command == "resume":
     n_batch = trainer.config.n_batch
     dtype = trainer.config.dtype
 
-elif command in ["train", "finetune"]:
+elif command == "finetune":
     model = NanoGPT.from_checkpoint(chkpt_config, device)
     trainer = NanoGPTTrainer(train_config)
     optimizer = configure_optimizer(model, train_config, device)
@@ -165,7 +165,7 @@ elif command == "generate":
     n_batch = 1  # NOTE: batch size not actually relevant here
     dtype = gener_config.dtype
 
-
+# directories in config we might require
 if main_process:
     os.makedirs(chkpt_config.checkpoint_dir, exist_ok=True)
     # TODO: logging dirs, other output dirs?
@@ -197,7 +197,9 @@ else:
         print(f"train loss {tl:.4f}, val loss {vl:.4f}, eval took {dt:.6f}s")
     elif command == "generate":
         raise NotImplementedError("TBD")
-        # model.generate(idx, gener_config, context)
+        # prompt = encode(start) # TODO: need to define encoder
+        # P = torch.tensor(prompt, dtype=torch.long, device=device)[None, ...]
+        # model.generate(P, gener_config, context)
 
 if ddp_config.enabled:
     destroy_process_group()

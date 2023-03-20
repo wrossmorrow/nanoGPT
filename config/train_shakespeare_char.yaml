@@ -22,8 +22,6 @@ training:
     always_save_checkpoint: False
 
     wandb_log: False # override via command line if you like
-    wandb_project: shakespeare-char
-    wandb_run_name: nano-gpt
 
     # dataset: shakespeare_char
     n_batch: 64

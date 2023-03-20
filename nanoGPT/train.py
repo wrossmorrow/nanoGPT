@@ -4,7 +4,8 @@ import os.path
 
 from math import cos, pi
 from time import time
-from typing import Any, cast, Optional, Union
+from typing import Any, Optional, Union
+from typing import cast  # noqa: F401
 from warnings import warn
 
 import torch
@@ -13,6 +14,7 @@ from torch import nn
 from .config import CheckpointConfig, NanoGPTContext, TrainingConfig
 from .data import DataLoader
 from .model import NanoGPT
+from .optim import save_checkpoint as optim_to_checkpoint
 
 
 class NanoGPTTrainer:
@@ -37,7 +39,7 @@ class NanoGPTTrainer:
 
     def train(
         self,
-        model: nn.Module,  # expect a NanoGPT, but not important actually
+        model: nn.Module,  # expect a NanoGPT; nn.Module should be enough; DDP -> Union[Tensor, Module]?
         data: DataLoader,
         optimizer: torch.optim.Optimizer,
         checkpoints: CheckpointConfig,
@@ -52,10 +54,12 @@ class NanoGPTTrainer:
         # raw_model = cast(NanoGPT, model.module if context.ddp_enabled else model)
         raw_model = model.module if context.ddp_enabled else model
 
-        # compile the model
+        # compile the model if desired
+        # NOTE: requires PyTorch 2.0
+        # NOTE: compile returns a Callable, so is type incompatible with nn.Module
         if self.config.torch_compile:
-            warn("compiling the model... (takes a ~minute)")
-            model = torch.compile(model)  # NOTE: requires PyTorch 2.0
+            warn("compiling the model...  (takes a ~minute)")
+            model = torch.compile(model)  # type: ignore [assignment]
 
         # get a "GradScaler"
         scaler = torch.cuda.amp.GradScaler(enabled=(self.config.dtype == "float16"))
@@ -71,7 +75,7 @@ class NanoGPTTrainer:
             for param_group in optimizer.param_groups:
                 param_group["lr"] = lr
 
-            # evaluate the loss on train/val sets and write checkpoints
+            # evaluate step: evaluate both train/test loss and write checkpoints
             if it % self.config.eval_interval == 0 and context.main_process:
                 dt = time() - ts
                 tl, vl = data.estimate_loss(model, context, self.config.eval_iters)
@@ -79,17 +83,20 @@ class NanoGPTTrainer:
                 if vl < best_val_loss or self.config.always_save_checkpoint:
                     best_val_loss = vl
                     if it > 0:
-                        checkpoints.save(it, best_val_loss, raw_model, raw_model.config, optimizer, self.config)
+                        # checkpoints.save(it, best_val_loss, raw_model, raw_model.config, optimizer, self.config)
+                        raw_model.to_checkpoint(it, best_val_loss, checkpoints)  # type: ignore
+                        self.to_checkpoint(it, best_val_loss, checkpoints)
+                        optim_to_checkpoint(it, best_val_loss, checkpoints, optimizer)
 
             # forward backward update, with optional gradient accumulation to
             # simulate larger batch size and using the GradScaler if data type
             # is float16
             for ms in range(grad_accm_steps):
                 if context.ddp_enabled:
-                    # in DDP training we only need to sync gradients at the last micro step.
+                    # In DDP training we only need to sync gradients at the last micro step.
                     # the official way to do this is with model.no_sync() context manager, but
-                    # I really dislike that this bloats the code and forces us to repeat code
-                    # looking at the source of that context manager, it just toggles this variable
+                    # I really dislike that this bloats the code and forces us to repeat code.
+                    # Looking at the source of that context manager, it just toggles this variable
                     model.require_backward_grad_sync = ms == grad_accm_steps - 1  # type: ignore
 
                 # compute logits and loss, possibly using mixed precision
@@ -124,22 +131,34 @@ class NanoGPTTrainer:
                     self.estimate_mfu(raw_model, fwdbwd_per_iter, dt)
                 self.on_log(it, dt, loss, self.mfu)
 
+        # completed max_iters training steps; always consider this an evaluate step
+        dt = time() - ts
+        tl, vl = data.estimate_loss(model, context, self.config.eval_iters)
+        self.on_eval(it, dt, tl, vl, best_val_loss, self.mfu)
+        if vl < best_val_loss or self.config.always_save_checkpoint:
+            best_val_loss = vl
+            if it > 0:
+                # checkpoints.save(it, best_val_loss, raw_model, raw_model.config, optimizer, self.config)
+                raw_model.to_checkpoint(it, best_val_loss, checkpoints)  # type: ignore
+                self.to_checkpoint(it, best_val_loss, checkpoints)
+                optim_to_checkpoint(it, best_val_loss, checkpoints, optimizer)
+
     # learning rate decay scheduler (cosine with warmup)
     def get_lr(self, it: int) -> float:
 
-        # 0) using?
+        # return learning rate if we aren't using a dynamic learning rate
         if not self.config.decay_lr:
             return self.config.learning_rate
 
-        # 1) linear warmup for warmup_iters steps
+        # linear warmup for warmup_iters steps
         if it < self.config.warmup_iters:
             return self.config.learning_rate * it / self.config.warmup_iters
 
-        # 2) if it > lr_decay_iters, return min learning rate
+        # if it > lr_decay_iters, return min learning rate
         if it > self.config.lr_decay_iters:
             return self.config.min_lr
 
-        # 3) in between, use cosine decay down to min learning rate
+        # in between, use cosine decay down to min learning rate
         num = it - self.config.warmup_iters
         den = self.config.lr_decay_iters - self.config.warmup_iters
         decay_ratio = num / den
@@ -182,6 +201,16 @@ class NanoGPTTrainer:
 
     def on_log(self, it: int, dt: float, loss: torch.Tensor, mfu: Optional[float]) -> bool:
         return True
+
+    def to_checkpoint(self, iter_num: int, best_val_loss: float, config: CheckpointConfig) -> None:
+        torch.save(
+            {
+                "iter_num": iter_num,
+                "best_val_loss": best_val_loss,
+                "train_config": self.config.dict(),
+            },
+            config.checkpoint_filename("train"),
+        )
 
     @staticmethod
     def from_checkpoint(config: CheckpointConfig, device: str) -> NanoGPTTrainer:

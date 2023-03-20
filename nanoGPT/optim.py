@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import os.path
 
 from inspect import signature
+from typing import Any
 from warnings import warn
 
 import torch
@@ -84,6 +87,22 @@ def configure_optimizer(model: nn.Module, config: TrainingConfig, device: str) -
     return torch.optim.AdamW(optim_groups, lr=config.learning_rate, betas=betas, **extra_args)
 
 
+def save_checkpoint(
+    iter_num: int,
+    best_val_loss: float,
+    config: CheckpointConfig,
+    optimizer: torch.optim.Optimizer,
+) -> None:
+    torch.save(
+        {
+            "iter_num": iter_num,
+            "best_val_loss": best_val_loss,
+            "optim_state": optimizer.state_dict(),
+        },
+        config.checkpoint_filename("optim"),
+    )
+
+
 def load_checkpoint(
     config: CheckpointConfig,
     device: str,
@@ -92,3 +111,31 @@ def load_checkpoint(
     filename = os.path.join(config.checkpoint_dir, config.optim_checkpoint)
     checkpoint = torch.load(filename, map_location=device)
     optimizer.load_state_dict(checkpoint["optim_state"])
+
+
+class WrappedTorchOptimizer:
+    def __init__(self, model: nn.Module, config: TrainingConfig, device: str) -> None:
+        self._optimizer = configure_optimizer(model, config, device)
+
+    def __getattr__(self, attr: str) -> Any:
+        if hasattr(self._optimizer, attr):
+            return getattr(self._optimizer, attr)
+        raise AttributeError(f"{self.__class__.__name__} has not attribute {attr}")
+
+    def to_checkpoint(self, iter_num: int, best_val_loss: float, config: CheckpointConfig) -> None:
+        torch.save(
+            {
+                "iter_num": iter_num,
+                "best_val_loss": best_val_loss,
+                "optim_state": self._optimizer.state_dict(),
+            },
+            config.checkpoint_filename("optim"),
+        )
+
+    @staticmethod
+    def from_checkpoint(self, config: CheckpointConfig, device: str) -> WrappedTorchOptimizer:
+        # filename = config.checkpoint_filename("optim")
+        # checkpoint = torch.load(filename, map_location=device)
+        # need to initialize ...
+        # optimizer.load_state_dict(checkpoint["optim_state"])
+        pass

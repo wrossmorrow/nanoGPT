@@ -13,7 +13,11 @@ from .config import NanoGPTConfig
 class NanoGPTBlock(nn.Module):
     def __init__(self, config: NanoGPTConfig) -> None:
         super().__init__()
-        self.ln_1 = layers.LayerNorm(config.n_embed, bias=config.ln_bias)
+        self.ln_1 = (
+            layers.LinearLayerNorm(config.n_embed, bias=config.ln_bias)
+            if config.linear_layernorms
+            else layers.LayerNorm()
+        )
         self.attn = (
             layers.BatchedCausalSelfAttention(
                 config.n_block,
@@ -36,7 +40,11 @@ class NanoGPTBlock(nn.Module):
                 o_bias=config.o_bias,
             )
         )
-        self.ln_2 = layers.LayerNorm(config.n_embed, bias=config.ln_bias)
+        self.ln_2 = (
+            layers.LinearLayerNorm(config.n_embed, bias=config.ln_bias)
+            if config.linear_layernorms
+            else layers.LayerNorm()
+        )
         self.mlp = layers.FannedGeLU(config.n_embed, bias=config.ll_bias)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
