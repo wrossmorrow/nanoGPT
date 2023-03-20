@@ -47,8 +47,10 @@ class NanoGPTTrainer:
         # local data (convenience and o/w)
         best_val_loss: float = self.prev_best_val_loss
         grad_accm_steps: int = self.config.gradient_accumulation_steps
-        fwdbwd_per_iter = self.config.n_batch * grad_accm_steps
-        raw_model = cast(NanoGPT, model.module if context.ddp_enabled else model)
+        fwdbwd_per_iter: float = self.config.n_batch * grad_accm_steps
+
+        # raw_model = cast(NanoGPT, model.module if context.ddp_enabled else model)
+        raw_model = model.module if context.ddp_enabled else model
 
         # compile the model
         if self.config.torch_compile:

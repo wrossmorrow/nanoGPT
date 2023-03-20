@@ -4,13 +4,12 @@ nanoGPT model configuration
 from __future__ import annotations
 
 import json
-import os.path
 
 from contextlib import nullcontext
 from datetime import datetime as dt
 from dataclasses import asdict, dataclass, field, fields
 from math import sqrt
-from os import environ
+from os import environ, path
 from typing import Any, Dict, Optional, Union
 
 import torch
@@ -300,7 +299,7 @@ class CheckpointConfig(Loadable, Dictable):
                 "best_val_loss": best_val_loss,
                 "train_config": train_config.dict(),
             },
-            os.path.join(self.checkpoint_dir, self.train_checkpoint),
+            path.join(self.checkpoint_dir, self.train_checkpoint),
         )
         torch.save(
             {
@@ -309,7 +308,7 @@ class CheckpointConfig(Loadable, Dictable):
                 "model_config": model_config.dict(),
                 "model_state": model.state_dict(),
             },
-            os.path.join(self.checkpoint_dir, self.model_checkpoint),
+            path.join(self.checkpoint_dir, self.model_checkpoint),
         )
         torch.save(
             {
@@ -317,7 +316,7 @@ class CheckpointConfig(Loadable, Dictable):
                 "best_val_loss": best_val_loss,
                 "optim_state": optimizer.state_dict(),
             },
-            os.path.join(self.checkpoint_dir, self.optim_checkpoint),
+            path.join(self.checkpoint_dir, self.optim_checkpoint),
         )
 
 
@@ -399,3 +398,14 @@ class NanoGPTContext:
     ddp_enabled: bool = False
     main_process: bool = False
     amp_context: Union[nullcontext, torch.amp.autocast] = field(default_factory=nullcontext)
+
+    @staticmethod
+    def from_env() -> DDPConfig:
+        enabled = False
+        rank = int(environ.get("RANK", -1))
+        if rank == -1:  # not a ddp run?
+            return DDPConfig(enabled=enabled, rank=1, local_rank=0, seed_offset=0)
+
+        local_rank = int(environ["LOCAL_RANK"])
+        config = DDPConfig(enabled=enabled, rank=rank, local_rank=local_rank, seed_offset=rank)
+        return config

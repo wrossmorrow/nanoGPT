@@ -36,7 +36,7 @@ To run with DDP on 4 gpus across 2 nodes, example:
 import os
 
 from contextlib import nullcontext
-from typing import cast
+from typing import cast, Union
 
 import torch
 from torch.distributed import init_process_group, destroy_process_group
@@ -55,30 +55,31 @@ command, configs, args = DefaultCLI.parse_config()
 
 chkpt_config = cast(config.CheckpointConfig, configs[config.CheckpointConfig.__name__])
 datas_config = cast(config.DatasetConfig, configs[config.DatasetConfig.__name__])
-
 evalm_config: config.EvaluateConfig
 gener_config: config.GenerateConfig
 model_config: config.NanoGPTConfig
 train_config: config.TrainingConfig
 
 if command == "train":  # init a new model from scratch and train it
-    # assert model_config is not None, "Model configuration required when training"
-    # assert train_config is not None, "Training configuration required when training"
     print("Training a new model from scratch")
     model_config = cast(config.NanoGPTConfig, configs[config.NanoGPTConfig.__name__])
     train_config = cast(config.TrainingConfig, configs[config.TrainingConfig.__name__])
 
 elif command == "eval":  # evaluate an existing model
-    # assert evalm_config is not None, "Evaluation configuration required when evaluating"
     print("Evaluating model from checkpoint")
     evalm_config = cast(config.EvaluateConfig, configs[config.EvaluateConfig.__name__])
 
 elif command == "resume":  # resume training from a checkpoint.
-    # assert train_config is not None # training config is optional here
     print("Resuming training from checkpoint")
+    # TODO: figure out how to assign override values... a core function of resuming
+    # is likely to be changing training parameters?
+    # train_config = cast(config.TrainingConfig, configs[config.TrainingConfig.__name__])
+
+elif command == "finetune":  # fine tune a model, using a checkpoint from another
+    print("Fine tune a model from checkpoint")
+    train_config = cast(config.TrainingConfig, configs[config.TrainingConfig.__name__])
 
 elif command == "generate":  # generate text from a checkpoint.
-    # assert gener_config is not None, "Generation configuration required when generating"
     print("Generating from checkpoint")
     gener_config = cast(config.GenerateConfig, configs[config.GenerateConfig.__name__])
 
@@ -96,6 +97,7 @@ n_block: int = 0
 n_batch: int = 0
 device: str = args.device if hasattr(args, "device") else "cpu"
 dtype: str
+model: Union[torch.nn.Module, NanoGPT]  # this will make DDP wrapping type compatible
 
 ddp_config = config.DDPConfig.from_env()  # is this a ddp run?
 if ddp_config.enabled:
@@ -122,7 +124,7 @@ if command == "eval":
     n_batch = evalm_config.n_batch
     dtype = evalm_config.dtype
 
-elif command == "train":
+elif command in ["train", "finetune"]:
     model = NanoGPT(model_config)
     trainer = NanoGPTTrainer(train_config)
     optimizer = configure_optimizer(model, train_config, device)
@@ -130,10 +132,6 @@ elif command == "train":
     n_block = model.config.n_block
     n_batch = trainer.config.n_batch
     dtype = trainer.config.dtype
-
-    if main_process:
-        os.makedirs(chkpt_config.checkpoint_dir, exist_ok=True)
-        # TODO: checkpoint dirs, logging dirs?
 
 elif command == "resume":
     model = NanoGPT.from_checkpoint(chkpt_config, device)
@@ -151,12 +149,26 @@ elif command == "resume":
     n_batch = trainer.config.n_batch
     dtype = trainer.config.dtype
 
+elif command in ["train", "finetune"]:
+    model = NanoGPT.from_checkpoint(chkpt_config, device)
+    trainer = NanoGPTTrainer(train_config)
+    optimizer = configure_optimizer(model, train_config, device)
+
+    n_block = model.config.n_block
+    n_batch = trainer.config.n_batch
+    dtype = trainer.config.dtype
+
 elif command == "generate":
     model = NanoGPT.from_checkpoint(chkpt_config, device)
 
     n_block = model.config.n_block
     n_batch = 1  # NOTE: batch size not actually relevant here
     dtype = gener_config.dtype
+
+
+if main_process:
+    os.makedirs(chkpt_config.checkpoint_dir, exist_ok=True)
+    # TODO: logging dirs, other output dirs?
 
 # construct dataset loader/wrapper using block/batch sizes case-determined above
 data = DataLoader(datas_config, n_block, n_batch, device)
@@ -165,7 +177,7 @@ data = DataLoader(datas_config, n_block, n_batch, device)
 model.to(device)
 
 # wrap model into DDP container (no-op if not enabled)
-model = cast(NanoGPT, ddp_config.wrap(model))
+model = ddp_config.wrap(model)
 
 # evaluate/training context (not used in generation?)
 context = config.NanoGPTContext(
