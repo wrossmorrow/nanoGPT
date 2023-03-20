@@ -12,6 +12,7 @@ import os.path
 
 from math import sqrt
 from typing import Any, Optional, Tuple
+from warnings import warn
 
 import torch
 import torch.nn as nn
@@ -44,6 +45,8 @@ class NanoGPT(nn.Module):
             }
         )
 
+        if config.linear_layernorms:
+            warn("NOTE: composing a Linear after a LinearLayerNorm composes parameters")
         self.lm_head = nn.Linear(config.n_embed, config.vocab_size, bias=False)
 
         # TODO: investigate
