@@ -71,6 +71,7 @@ class NanoGPTTrainer:
 
         filename = checkpoints.checkpoint_filename("status")
         with open(filename, "w") as status:
+            status.write(f"number of parameters: {model.get_num_params()}\n")
             status.write("curr time,iter num,last iter us,train loss,test loss,best loss,mfu\n")
 
         # training loop
