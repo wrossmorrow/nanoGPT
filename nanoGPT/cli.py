@@ -1,11 +1,21 @@
 import argparse
+import re
 
 from dataclasses import dataclass, fields, Field, _MISSING_TYPE
-from typing import Any, Dict, get_type_hints, List, Optional, Tuple
+from typing import Any, Dict, get_type_hints, List, Optional, Tuple, Union
 
 from torch.cuda import is_available as cuda_is_available
 
 from nanoGPT import config
+
+
+def bool_arg_type(arg: Union[str, int, bool]):
+    if isinstance(arg, bool):
+        return arg
+    if isinstance(arg, int):
+        return bool(arg)
+    if isinstance(arg, str):
+        return re.match(r"([Tt](rue)?|[Yy]es)", arg) is not None
 
 
 @dataclass
@@ -94,17 +104,20 @@ class CLIParser:
 
     def add_field(self, parser: argparse.ArgumentParser, field: Field) -> None:
         field_flag = "--" + field.name.replace("_", "-")
+        field_type = field.type
+        if field_type == bool:
+            field_type = bool_arg_type  # type: ignore [assignment]
         if isinstance(field.default, _MISSING_TYPE):
             parser.add_argument(
                 field_flag,
-                type=field.type,
+                type=field_type,
                 required=True,  # problematic if we allow config files
                 help=field.metadata.get("help", "-"),
             )
         else:
             parser.add_argument(
                 field_flag,
-                type=field.type,
+                type=field_type,
                 default=DefaultValue(field.default),  # field.default,
                 help=field.metadata.get("help", "-"),
             )
