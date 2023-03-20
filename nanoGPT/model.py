@@ -83,12 +83,12 @@ class NanoGPT(nn.Module):
             n_params -= self.transformer.wpe.weight.numel()  # type: ignore
         return n_params
 
-    def get_verbose_num_params(self, non_embedding: bool = True) -> int:
+    def get_verbose_num_params(self, non_embedding: bool = True) -> Tuple[int, int, str]:
         num_params = self.get_num_params(non_embedding=non_embedding)
-        num_params_log10 = int(log10(num_params)) # num_params = 10^(num_params_log10)
+        num_params_log10 = int(log10(num_params))  # num_params = 10^(num_params_log10)
         num_params_order = (num_params_log10 - num_params_log10 % 3) // 3
-        num_params_scale = 10.0**(3*num_params_order)
-        num_params_sunit = {0: "", 1: "k", 2: "M", 3: "B", 4: "T"}[num_params_order]
+        num_params_scale = 10 ** (3 * int(num_params_order))
+        num_params_sunit: str = {0: "", 1: "k", 2: "M", 3: "B", 4: "T"}[num_params_order]
         return num_params, num_params_scale, num_params_sunit
 
     def _init_weights(self, module: nn.Module) -> None:
@@ -106,14 +106,14 @@ class NanoGPT(nn.Module):
             T <= self.config.n_block
         ), f"Cannot forward sequence of length {T}, block size is only {self.config.n_block}"
 
-        pos = torch.arange(0, T, dtype=torch.long, device=device).unsqueeze(0)  # shape (1, t)
+        pos = torch.arange(0, T, dtype=torch.long, device=device).unsqueeze(0)  # shape (1, T)
 
         # forward the GPT model itself
-        tok_emb = self.transformer.wte(idx)  # token embeddings of shape (b, t, n_embed)
-        pos_emb = self.transformer.wpe(pos)  # position embeddings of shape (1, t, n_embed)
+        tok_emb = self.transformer.wte(idx)  # token embeddings of shape B x T x C
+        pos_emb = self.transformer.wpe(pos)  # position embeddings of shape 1 x T x C
         X = self.transformer.drop(tok_emb + pos_emb)
         for block in self.transformer.heads:  # type: ignore
-            X = block(x)
+            X = block(X)
         X = self.transformer.ln_f(X)
 
         if targets is not None:
