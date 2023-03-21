@@ -46,6 +46,10 @@ test *FLAGS:
 # run all verifications
 verify: format lint types test
 
+# prepare data
+prepare DATASET="shakespeare-char":
+    poetry run python data/{{DATASET}}/prepare.py
+
 # run CLI
 run *FLAGS:
     poetry run python -m {{name}} {{FLAGS}}

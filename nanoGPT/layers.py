@@ -305,9 +305,6 @@ class FannedGeLU(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
-        # X = self.c_fc(X)
-        # X = new_gelu(X)
-        # X = self.c_proj(X)
-        # X = self.dropout(X)
-        # include residual connection here so we can use Identity in the block
+        # include residual connection here so we can use Identity 
+        # in the block when excluding the feedforward entirely
         return X + self.dropout(self.c_proj(new_gelu(self.c_fc(X))))
