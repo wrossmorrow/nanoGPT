@@ -5,7 +5,7 @@ dataset:
     dataset_dir: data/fullshakes-char
 
 model:
-    vocab_size: 65 # characters only
+    vocab_size: 91 # characters only
     n_block: 64 # context of up to 64 previous characters
     n_layer: 6
     n_heads: 6
@@ -13,7 +13,7 @@ model:
     dropout: 0.2
 
 training:
-    eval_interval: 100 # keep frequent because we'll overfit
+    eval_interval: 250 # keep frequent because we'll overfit
     eval_iters: 200
     log_interval: 10 # don't print too too often
 
@@ -26,8 +26,8 @@ training:
     n_batch: 64
 
     learning_rate: 1.0e-3 # with baby networks can afford to go a bit higher
-    max_iters: 5000
-    lr_decay_iters: 5000 # make equal to max_iters usually
+    max_iters: 10000
+    lr_decay_iters: 10000 # make equal to max_iters usually
     min_lr: 1.0e-4 # learning_rate / 10 usually
     beta2: 0.99 # make a bit bigger because number of tokens per iter is small
 
