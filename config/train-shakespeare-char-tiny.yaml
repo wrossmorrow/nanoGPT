@@ -2,7 +2,7 @@
 # good for debugging and playing on macbooks and such
 
 dataset: 
-    dataset_dir: data/shakespeare-char
+    dataset_dir: data/shakespeare/tiny/char
 
 model:
     vocab_size: 65 # characters only

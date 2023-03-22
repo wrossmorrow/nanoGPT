@@ -48,8 +48,30 @@ class QuadraticForm(nn.Module):
 
         (W_K X)'(W_Q X) = X' W_K' W_Q X = X' W_{K,Q} X
 
-    This is more expensive in multihead attentions where the weight
+    This is more expensive than in multihead attentions where the weight
     matrices are "short"/"wide", as opposed to "thin"/"tall".
+
+    Note W ~ X.shape[0] x X.shape[0] and 
+
+        (X' W X)[j, k] = X[:, j]' W X[:, k]
+
+    which can appear to have a "causal mask" iff upper triangular, i.e.
+
+        X[:, j]' W X[:, k] = 0 when j > k
+
+    we can impose this explicitly but that seems hacky and would suggest 
+    wasted parameters? (Seems that would apply to attention as well?)
+
+    Composable with a residual connection with
+    
+        X + W_V X' W_{K,Q} X
+
+    when W_V has the same shape as X[b, :, :]. Or we can just "replicate"
+    attention as 
+
+        X + W_V X F(X)
+
+    for any (matrix) function F that is upper triangular for causal models
     """
 
     def __init__(self, ndim: int, scale: Optional[float] = None) -> None:
@@ -108,6 +130,14 @@ class SplitQKV:
         return torch.cat([Q, K, V])
 
 
+class FFT(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+
+    def forward(self, X: torch.Tensor) -> torch.Tensor:
+        return torch.fft.fft2(X, norm="ortho").real
+
+
 class SplitCausalSelfAttention(nn.Module):
     def __init__(
         self,
@@ -142,6 +172,7 @@ class SplitCausalSelfAttention(nn.Module):
         self.resid_dropout = nn.Dropout(dropout)
 
         # NOTE: ignoring flash attention to manipulate better; often unusable anyway
+        # NOTE: can probably add `diagonal=1` to tril to ignore self-correlatiions?
         self.mask = torch.tril(torch.ones(n_block, n_block))
         self.mask = self.mask.view(1, 1, n_block, n_block)
         self.register_buffer("bias", self.mask)

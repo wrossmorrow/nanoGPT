@@ -18,28 +18,29 @@ class NanoGPTBlock(nn.Module):
             if config.linear_layernorms
             else layers.LayerNorm()
         )
-        self.attn = (
-            layers.BatchedCausalSelfAttention(
-                config.n_block,
-                config.n_embed,
-                config.n_heads,
-                scale=config.attn_scale,
-                dropout=config.attn_dropout,
-                bias=config.attn_bias,
-            )
-            if config.batched_qkv
-            else layers.SplitCausalSelfAttention(
-                config.n_block,
-                config.n_embed,
-                config.n_heads,
-                scale=config.attn_scale,
-                dropout=config.attn_dropout,
-                q_bias=config.q_bias,
-                k_bias=config.k_bias,
-                v_bias=config.v_bias,
-                o_bias=config.o_bias,
-            )
-        )
+        self.attn = layers.FFT()
+        # self.attn = (
+        #     layers.BatchedCausalSelfAttention(
+        #         config.n_block,
+        #         config.n_embed,
+        #         config.n_heads,
+        #         scale=config.attn_scale,
+        #         dropout=config.attn_dropout,
+        #         bias=config.attn_bias,
+        #     )
+        #     if config.batched_qkv
+        #     else layers.SplitCausalSelfAttention(
+        #         config.n_block,
+        #         config.n_embed,
+        #         config.n_heads,
+        #         scale=config.attn_scale,
+        #         dropout=config.attn_dropout,
+        #         q_bias=config.q_bias,
+        #         k_bias=config.k_bias,
+        #         v_bias=config.v_bias,
+        #         o_bias=config.o_bias,
+        #     )
+        # )
         if config.attention_only:
             self.ln_2, self.mlp = nn.Identity(), nn.Identity()
         else:
