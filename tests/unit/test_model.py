@@ -1,13 +1,11 @@
-import pytest
+import pytest  # noqa: F401
 
 from contextlib import nullcontext
 from os import path
 
-import torch
+import torch  # noqa: F401
 
-from nanoGPT.config import (
-    CheckpointConfig, DatasetConfig, NanoGPTConfig, NanoGPTContext, TrainingConfig
-)
+from nanoGPT.config import CheckpointConfig, DatasetConfig, NanoGPTConfig, NanoGPTContext, TrainingConfig
 from nanoGPT.data import DataLoader
 from nanoGPT.model import NanoGPT
 from nanoGPT.train import NanoGPTTrainer
@@ -23,7 +21,7 @@ def test_train_model(device) -> None:
     chkpt_config = CheckpointConfig.from_yaml_file(filename)
     datas_config = DatasetConfig.from_yaml_file(filename)
     n_block, n_batch = model_config.n_block, train_config.n_batch
-    
+
     data = DataLoader(datas_config, n_block, n_batch, device)
     model = NanoGPT(model_config)
     trainer = NanoGPTTrainer(train_config)

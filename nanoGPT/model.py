@@ -67,10 +67,6 @@ class NanoGPT(nn.Module):
             if pn.endswith("c_proj.weight"):
                 torch.nn.init.normal_(p, mean=0.0, std=0.02 / sqrt(2 * config.n_layer))
 
-        # report number of parameters (flexibly, if verbosely)
-        num_params, num_params_scale, num_params_sunit = self.get_verbose_num_params()
-        print(f"number of parameters: {num_params/num_params_scale:.2f}{num_params_sunit} ({num_params:,})")
-
     def get_num_params(self, non_embedding: bool = True) -> int:
         """
         Return the number of parameters in the model.
@@ -121,14 +117,15 @@ class NanoGPT(nn.Module):
             X = block(X)  # type: ignore [operator]
         X = self.transformer.ln_f(X)  # type: ignore [operator]
 
+        logits, loss = self.lm_head(X), None  # B x T x C @ C x V -> B x T x V
         if targets is not None:
             # if we are given some desired targets also calculate the loss
-            logits = self.lm_head(X)
             loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
-        else:
-            # inference-time mini-optimization: only forward the lm_head on the very last position
-            logits = self.lm_head(X[:, [-1], :])  # note: using list [-1] to preserve the time dim
-            loss = None
+        # else:
+        #     # inference-time mini-optimization: only forward the lm_head on the very last position
+        #     # logits = self.lm_head(X[:, [-1], :])  # B x T x C @ C x V -> B x 1 x V
+        #     logits = self.lm_head(X)  # B x T x C @ C x V -> B x T x V
+        #     loss = None
 
         return logits, loss
 
@@ -151,20 +148,22 @@ class NanoGPT(nn.Module):
             idx_cond = idx if idx.size(1) <= self.config.n_block else (idx[:, -self.config.n_block :])
 
             # forward the model to get the logits for the index in the sequence
-            logits, _ = self(idx_cond)
-
             # pluck the logits at the final step and scale by desired temperature
+            logits, _ = self(idx_cond)  # 1 x T x vocab_size
             logits = logits[:, -1, :] / config.temperature
 
-            # optionally crop the logits to only the top k options
-            if config.top_k is not None:
-                v, _ = torch.topk(logits, min(config.top_k, logits.size(-1)))
-                logits[logits < v[:, [-1]]] = -float("Inf")
+            if config.sample:  # sample from the distribution
+                # optionally crop the logits to only the top k options
+                if config.top_k is not None:
+                    v, _ = torch.topk(logits, min(config.top_k, logits.size(-1)))
+                    logits[logits < v[:, [-1]]] = -float("Inf")
+            else:
+                # if we aren't "sampling", sample from argmax only
+                m, _ = torch.max(logits, dim=-1)
+                logits[logits < m] = -float("Inf")
 
             # apply softmax to convert logits to (normalized) probabilities
             probs = F.softmax(logits, dim=-1)
-
-            # sample from the distribution
             idx_next = torch.multinomial(probs, num_samples=1)
 
             # append sampled index to the running sequence and continue

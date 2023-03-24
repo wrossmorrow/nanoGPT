@@ -166,6 +166,10 @@ def run() -> None:
         n_batch = 1  # NOTE: batch size not actually relevant here
         dtype = gener_config.dtype
 
+    # report number of parameters (flexibly, if verbosely)
+    num_params, num_params_scale, num_params_sunit = model.get_verbose_num_params()
+    print(f"number of parameters: {num_params/num_params_scale:.2f}{num_params_sunit} ({num_params:,})")
+
     # directories in config we might require
     if main_process:
         makedirs(chkpt_config.checkpoint_dir, exist_ok=True)

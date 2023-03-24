@@ -54,6 +54,10 @@ prepare DATASET="shakespeare-char":
 run *FLAGS:
     poetry run python -m {{name}} {{FLAGS}}
 
+# run the train CLI
+train *FLAGS:
+    poetry run python -m {{name}} train {{FLAGS}}
+
 # run under torch
 torchrun *FLAGS:
     poetry run torchrun nanoGPT/__main__.py {{FLAGS}}

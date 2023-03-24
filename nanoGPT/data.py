@@ -71,11 +71,9 @@ class DataLoader:
         context: NanoGPTContext,
         eval_iters: int,
     ) -> Tuple[float, float]:
-
-        out = {}
+        out, losses = {}, torch.zeros(eval_iters)
         model.eval()
         for split in ["train", "val"]:
-            losses = torch.zeros(eval_iters)
             for k in range(eval_iters):
                 X, Y = self.get_batch(split)
                 with context.amp_context:
@@ -88,4 +86,4 @@ class DataLoader:
         # NOTE: CPU/GPU sync point; but honestly what else should
         # we expect when estimating loss? Like, if we use these
         # to print or basically do anything orthogonal to training
-        # we're going to sync.
+        # we're going to sync CPU and GPU data.

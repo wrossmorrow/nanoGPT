@@ -10,7 +10,7 @@ import requests
 import numpy as np
 
 # download the tiny shakespeare dataset
-input_file_path = os.path.join(os.path.dirname(__file__), 'input.txt')
+input_file_path = "input.txt" # os.path.join(os.path.dirname(__file__), 'input.txt')
 if not os.path.exists(input_file_path):
     data_url = 'https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt'
     with open(input_file_path, 'w') as f:
@@ -33,7 +33,7 @@ itos = { i:ch for i,ch in enumerate(chars) }
 def encode(s):
     return [stoi[c] for c in s] # encoder: take a string, output a list of integers
 def decode(l):
-    ''.join([itos[i] for i in l]) # decoder: take a list of integers, output a string
+    return ''.join([itos[i] for i in l]) # decoder: take a list of integers, output a string
 
 # create the train and test splits
 n = len(data)

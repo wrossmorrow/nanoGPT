@@ -51,7 +51,7 @@ class QuadraticForm(nn.Module):
     This is more expensive than in multihead attentions where the weight
     matrices are "short"/"wide", as opposed to "thin"/"tall".
 
-    Note W ~ X.shape[0] x X.shape[0] and 
+    Note W ~ X.shape[0] x X.shape[0] and
 
         (X' W X)[j, k] = X[:, j]' W X[:, k]
 
@@ -59,15 +59,15 @@ class QuadraticForm(nn.Module):
 
         X[:, j]' W X[:, k] = 0 when j > k
 
-    we can impose this explicitly but that seems hacky and would suggest 
+    we can impose this explicitly but that seems hacky and would suggest
     wasted parameters? (Seems that would apply to attention as well?)
 
     Composable with a residual connection with
-    
+
         X + W_V X' W_{K,Q} X
 
     when W_V has the same shape as X[b, :, :]. Or we can just "replicate"
-    attention as 
+    attention as
 
         X + W_V X F(X)
 
@@ -136,6 +136,85 @@ class FFT(nn.Module):
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
         return torch.fft.fft2(X, norm="ortho").real
+
+
+class CausalFFT(nn.Module):
+    """
+    We have a sequence
+
+        X = [  x_1  x_2  ...  x_T  ]
+
+    and want to compute something with effects like
+
+        X = [  F_1(x_1)  F_2(x_1,x_2)  ...  F_L(x_1,...,x_L)  ]
+
+    So we could do
+
+        F_l(x_1,...,x_t) = DFFT(x_1,...,x_t)
+
+    """
+
+    pass
+
+
+class CausalQuadraticMixer(nn.Module):
+    def __init__(
+        self,
+        n_block: int,
+        n_embed: int,
+        n_heads: int,
+        scale: Optional[float] = None,
+        dropout: float = 0.2,
+        bias: bool = False,
+    ) -> None:
+        super().__init__()
+
+        self.n_embed = n_embed
+        self.n_heads = n_heads
+        self.dropout = dropout
+        self.quadf_scale = sqrt(n_embed / n_heads) if scale is None else scale
+
+        # key, query, value projections for all heads, but in a batch
+        self.c_attn = nn.Linear(n_embed, 3 * n_embed, bias=bias)
+
+        # output projection
+        self.c_proj = nn.Linear(n_embed, n_embed, bias=bias)
+
+        # regularization
+        self.attn_dropout = nn.Dropout(dropout)
+        self.resid_dropout = nn.Dropout(dropout)
+
+        # causal mask
+        self.mask = torch.tril(torch.ones(n_block, n_block))
+        self.mask = self.mask.view(1, 1, n_block, n_block)
+        self.register_buffer("bias", self.mask)
+
+    def _get_dims(self, X: torch.Tensor) -> Tuple[int, int, int, int, int]:
+        B, T, C = X.size()  # batch size, sequence length/block size, embedding dim
+        H = self.n_heads
+        D = C // H  # also config.n_attno...
+        return B, H, T, C, D
+
+    def forward(self, X: torch.Tensor) -> torch.Tensor:
+        B, H, T, C, D = self._get_dims(X)
+
+        # calculate query, key, values for all heads in batch and move head
+        # forward to be the batch dim
+        Q, K, V = self.c_attn(X).split(self.n_embed, dim=2)
+        Q = Q.view(B, T, H, D).transpose(1, 2)  # (B, nh, T, hs)
+        K = K.view(B, T, H, D).transpose(1, 2)  # (B, nh, T, hs)
+        V = V.view(B, T, H, D).transpose(1, 2)  # (B, nh, T, hs)
+
+        A = (Q @ K.transpose(-2, -1)) / self.quadf_scale
+        A = A.masked_fill(self.bias[:, :, :T, :T] == 0, 0.0)  # type: ignore
+        A = self.attn_dropout(A)
+
+        Y = A @ V
+        Y = Y.transpose(1, 2).contiguous().view(B, T, C)
+        Y = self.c_proj(Y)
+        Y = self.resid_dropout(Y)
+
+        return Y
 
 
 class SplitCausalSelfAttention(nn.Module):
@@ -336,6 +415,6 @@ class FannedGeLU(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
-        # include residual connection here so we can use Identity 
+        # include residual connection here so we can use Identity
         # in the block when excluding the feedforward entirely
         return X + self.dropout(self.c_proj(new_gelu(self.c_fc(X))))

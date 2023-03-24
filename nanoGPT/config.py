@@ -132,6 +132,7 @@ class NanoGPTConfig(Loadable, Dictable):
     n_embed: int = field(default=768, metadata={"help": "Embedding dimension"})
     # n_attnd: int = field(init=False, metadata={"cli": False})
 
+    quadratic_mixer: bool = field(default=False, metadata={"help": "Use the quadratic mixing effects only"})
     batched_qkv: bool = field(
         default=True, metadata={"help": "batch queries, keys, and values (all with or without bias)"}
     )
@@ -369,9 +370,11 @@ class GenerateConfig(Loadable, Dictable):
     )
 
     prompt: str = field(default="\n", metadata={"help": 'Text prompt for generation ("document completion")'})
+    batches: int = field(default=1, metadata={"help": "Distinct samples to generate"})
     max_new_tokens: int = field(default=500, metadata={"help": "Maximum new tokens to generate"})
     temperature: float = field(default=1.0, metadata={"help": "'Temperature'"})
     top_k: Optional[int] = field(default=None, metadata={"help": "'Top k'"})
+    sample: bool = field(default=True, metadata={"help": "Sample tokens, vs taking modal token"})
 
 
 @dataclass
@@ -421,7 +424,7 @@ class DDPConfig:
 @dataclass
 class NanoGPTContext:
     ddp_enabled: bool = False
-    main_process: bool = False
+    main_process: bool = True
     amp_context: Union[nullcontext, torch.amp.autocast] = field(default_factory=nullcontext)
 
     @staticmethod
