@@ -95,6 +95,9 @@ class NanoGPT(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
+    def weights(self):
+        return [b.attn.weights() for b in self.transformer["heads"]]
+
     def forward(self, idx: torch.Tensor, targets: Optional[Any] = None) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         device = idx.device
         B, T = idx.size()
@@ -141,16 +144,24 @@ class NanoGPT(nn.Module):
         (B, T)) and complete the sequence max_new_tokens times, feeding the
         predictions back into the model each time. Most likely you'll want
         to make sure to be in model.eval() mode of operation for this.
+
+        There are two ways to get "deterministic" predictions: (i) set the 
+        temperature to zero (or near it), or (ii) set top_k = 1. Formally
+        we could implement a special method to pick the argmax of the logits, 
+        but in principle that still might be multi-valued requiring draws 
+        anyway. 
         """
         for _ in range(config.max_new_tokens):
 
             # if the sequence context is growing too long we must crop it at block_size
-            idx_cond = idx if idx.size(1) <= self.config.n_block else (idx[:, -self.config.n_block :])
+            crop = idx.size(1) <= self.config.n_block
+            idx_cond = idx if crop else (idx[:, -self.config.n_block :])
 
             # forward the model to get the logits for the index in the sequence
             # pluck the logits at the final step and scale by desired temperature
-            logits, _ = self(idx_cond)  # 1 x T x vocab_size
-            logits = logits[:, -1, :] / config.temperature
+            # Note we safeguard against zero temperatures. 
+            logits, _ = self(idx_cond)  # B x T x V (V == vocab_size)
+            logits = logits[:, -1, :] / max(config.temperature, 1.0e-5)
 
             if config.sample:  # sample from the distribution
                 # optionally crop the logits to only the top k options

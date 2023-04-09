@@ -13,6 +13,28 @@ from torch.nn import functional as F
 from nanoGPT.activations import new_gelu
 
 
+SQRT_5 = 2.2360679775
+
+
+class GradHookFcn:
+    def __init__(self, name: str, weight: torch.Tensor) -> None:
+        self.name = name
+        self.weight = weight
+    def __call__(self, grad: torch.Tensor) -> None:
+        print(self.name, self.weight.shape, grad.shape)
+        # note: here we could attempt to find unidentified directions
+
+
+class ModuleGradHookFcn:
+    def __init__(self, name: str) -> None:
+        self.name = name
+    def __call__(self, module: nn.Module, grad_in: torch.Tensor, grad_out: torch.Tensor) -> None:
+        print(self.name, module)
+        print("grad_in:", [t.shape for t in grad_in])
+        print("grad_out:", [t.shape for t in grad_out])
+        # note: here we could attempt to find unidentified directions?
+
+
 class LayerNorm(nn.Module):
     """LayerNorm without any weights or biases."""
 
@@ -50,28 +72,6 @@ class QuadraticForm(nn.Module):
 
     This is more expensive than in multihead attentions where the weight
     matrices are "short"/"wide", as opposed to "thin"/"tall".
-
-    Note W ~ X.shape[0] x X.shape[0] and
-
-        (X' W X)[j, k] = X[:, j]' W X[:, k]
-
-    which can appear to have a "causal mask" iff upper triangular, i.e.
-
-        X[:, j]' W X[:, k] = 0 when j > k
-
-    we can impose this explicitly but that seems hacky and would suggest
-    wasted parameters? (Seems that would apply to attention as well?)
-
-    Composable with a residual connection with
-
-        X + W_V X' W_{K,Q} X
-
-    when W_V has the same shape as X[b, :, :]. Or we can just "replicate"
-    attention as
-
-        X + W_V X F(X)
-
-    for any (matrix) function F that is upper triangular for causal models
     """
 
     def __init__(self, ndim: int, scale: Optional[float] = None) -> None:
@@ -91,16 +91,53 @@ class QuadraticForm(nn.Module):
         #
         #   https://arxiv.org/abs/1502.01852
         #
-        nn.init.kaiming_uniform_(self.weight, a=sqrt(5))
+        nn.init.kaiming_uniform_(self.weight, a=SQRT_5)
         # TODO: stronger justification for using this approach
 
     def extra_repr(self) -> str:
         in_f, out_f = self.weight.shape
         return f"in_features={in_f}, out_features={out_f}, scale={self.scale}"
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        Y = F.linear(x, self.weight, None)
-        return Y @ x.transpose(-2, -1) / self.scale
+    def forward(self, X: torch.Tensor) -> torch.Tensor:
+        Y = F.linear(X, self.weight, None)
+        return Y @ X.transpose(-2, -1) / self.scale
+
+
+class NaiveLinearMixing(nn.Module):
+    def __init__(self, ndim: int, causal: bool = True) -> None:
+        super().__init__()
+        self.weight = nn.Parameter(torch.empty((ndim, ndim)))
+        self.causal = causal
+        self.reset_parameters()
+
+        # How do we implement upper-triangular parameters?
+
+    def reset_parameters(self) -> None:
+        # Mimic torch.nn.Linear parameter initialization:
+        #
+        #   https://github.com/pytorch/pytorch/blob/ \
+        #       7324aef9a86babd43b037b14b4cfef234e4c5db2/\
+        #       torch/nn/modules/linear.py#L107
+        #
+        # Based on method described by Kaiming, et al. (2015):
+        #
+        #   https://arxiv.org/abs/1502.01852
+        #
+        nn.init.kaiming_uniform_(self.weight, a=SQRT_5)
+        # TODO: stronger justification for using this approach
+
+    def extra_repr(self) -> str:
+        in_f, out_f = self.weight.shape
+        return f"in_features={in_f}, out_features={out_f}, causal={self.causal}"
+
+    def forward(self, X: torch.Tensor) -> torch.Tensor:
+        """
+        Hacky: In math language, we would normally do W @ X but here
+        we want to do X @ W. Given _only_ the ability to do left
+        multiplies, this is equivalent to (W' @ X')'.
+        """
+        Y = F.linear(X.transpose(-2, -1), self.weight, None)
+        return Y.transpose(-2, -1)
 
 
 class SplitQKV:
@@ -243,6 +280,8 @@ class SplitCausalSelfAttention(nn.Module):
         self.KLL = nn.Linear(n_embed, n_embed, bias=k_bias)
         self.VLL = nn.Linear(n_embed, n_embed, bias=v_bias)
 
+        # self.register_full_backward_hook(ModuleGradHookFcn(self.__class__.__name__))
+
         # output projection
         self.c_proj = nn.Linear(n_embed, n_embed, bias=o_bias)
 
@@ -255,6 +294,14 @@ class SplitCausalSelfAttention(nn.Module):
         self.mask = torch.tril(torch.ones(n_block, n_block))
         self.mask = self.mask.view(1, 1, n_block, n_block)
         self.register_buffer("bias", self.mask)
+
+    def weights(self) -> Tuple[torch.Tensor]:
+        return {
+            "Q": self.QLL.weight, 
+            "K": self.KLL.weight, 
+            "V": self.VLL.weight,
+            "O": self.c_proj.weight,
+        }
 
     def _get_dims(self, X: torch.Tensor) -> Tuple[int, int, int, int, int]:
         B, T, C = X.size()  # batch size, sequence length/block size, embedding dim
@@ -315,6 +362,11 @@ class BatchedCausalSelfAttention(nn.Module):
         self.mask = torch.tril(torch.ones(n_block, n_block))
         self.mask = self.mask.view(1, 1, n_block, n_block)
         self.register_buffer("bias", self.mask)
+
+
+    def weights(self) -> Tuple[torch.Tensor]:
+        Q, K, V = self.c_attn.weight.split(self.n_embed, dim=2)
+        return (Q, K, V)
 
     def _get_dims(self, X: torch.Tensor) -> Tuple[int, int, int, int, int]:
         B, T, C = X.size()  # batch size, sequence length/block size, embedding dim
@@ -400,7 +452,7 @@ class FlashCausalSelfAttention(nn.Module):
         return Y
 
 
-class FannedGeLU(nn.Module):
+class MultilayerPerceptron(nn.Module):
     def __init__(
         self,
         n_embed: int,

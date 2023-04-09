@@ -178,7 +178,7 @@ def run() -> None:
     # construct dataset loader/wrapper using block/batch sizes case-determined above
     data = DataLoader(datas_config, n_block, n_batch, device)
 
-    # put model on device
+    # put model on device (note: API choice to not include in from_checkpoint)
     model.to(device)
 
     # wrap model into DDP container (no-op if not enabled)
@@ -211,7 +211,7 @@ def run() -> None:
         elif command == "generate":
             raise NotImplementedError("TBD")
             # prompt = encode(start) # TODO: need to define encoder
-            # P = torch.tensor(prompt, dtype=torch.long, device=device)[None, ...]
+            # P = torch.tensor(gener_config.prompt, dtype=torch.long, device=device)[None, ...]
             # model.generate(P, gener_config, context)
 
     if ddp_config.enabled:

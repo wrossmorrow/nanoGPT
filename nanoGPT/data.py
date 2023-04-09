@@ -2,15 +2,59 @@
 Utility for loading data, getting batches, and estimating losses
 for train/test splits for an arbitrary model
 """
+from __future__ import annotations
+
 import os.path
 
+from dataclasses import dataclass
 from time import time
 from typing import Tuple
 
 import torch
+from torch.nn import functional as F
 import numpy as np
 
 from nanoGPT.config import DatasetConfig, NanoGPTContext
+
+
+@dataclass
+class Statistic:
+    mean: float
+    std: float
+
+    def __repr__(self) -> str:
+        return f"{self.mean:.4f} +/- {self.std:.4f}"
+
+    def to_csv(self) -> str:
+        return f"{self.mean:.4f},{self.std:.4f}"
+
+    @staticmethod
+    def from_tensor(x: torch.Tensor) -> Statistic:
+        return Statistic(mean=x.mean().item(), std=x.std().item())
+
+
+@dataclass
+class EstimatedLoss:
+    full: Statistic
+    last: Statistic
+
+    def __repr__(self) -> str:
+        return f"{self.full} | {self.last}"
+
+    def to_csv(self) -> str:
+        return f"{self.full.to_csv()},{self.last.to_csv()}"
+
+
+@dataclass
+class EstimatedLosses:
+    train: EstimatedLoss
+    val: EstimatedLoss
+
+    def __repr__(self) -> str:
+        return f"train: {self.train}, test: {self.val}"
+
+    def to_csv(self) -> str:
+        return f"{self.train.to_csv()},{self.val.to_csv()}"
 
 
 class DataLoader:
@@ -70,19 +114,29 @@ class DataLoader:
         model: torch.nn.Module,
         context: NanoGPTContext,
         eval_iters: int,
-    ) -> Tuple[float, float]:
-        out, losses = {}, torch.zeros(eval_iters)
+    ) -> EstimatedLosses: # Tuple[float, float]:
+        out, new_out = {}, {}
+        losses, last_losses = torch.zeros(eval_iters), torch.zeros(eval_iters)
         model.eval()
         for split in ["train", "val"]:
             for k in range(eval_iters):
                 X, Y = self.get_batch(split)
                 with context.amp_context:
                     logits, loss = model(X, Y)
+                    logits = logits[:, -1, :]
+                    last_Y = Y[:, -1]
+                    last_loss = F.cross_entropy(logits.view(-1, logits.size(-1)), last_Y.view(-1), ignore_index=-1)
                 losses[k] = loss.item()
-            out[split] = losses.mean()
+                last_losses[k] = last_loss.item()
+            new_out[split] = EstimatedLoss(
+                full=Statistic.from_tensor(losses),
+                last=Statistic.from_tensor(last_losses),
+            )
+            out[split] = losses.mean().item()
 
         model.train()
-        return out["train"].item(), out["val"].item()
+        # return out["train"], out["val"]
+        return EstimatedLosses(**new_out)
         # NOTE: CPU/GPU sync point; but honestly what else should
         # we expect when estimating loss? Like, if we use these
         # to print or basically do anything orthogonal to training

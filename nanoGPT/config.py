@@ -10,7 +10,7 @@ from datetime import datetime as dt
 from dataclasses import asdict, dataclass, field, fields
 from math import sqrt
 from os import environ, path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import torch
 from torch import nn
@@ -31,7 +31,8 @@ SHARED_GPT2_CONF: Dict[str, Union[bool, int, str, float]] = {
     "n_block": 1024,
     "linear_layernorms": True,
     "ln_bias": True,
-    "ll_bias": True,
+    "mlp_fanout": 4,
+    "mlp_bias": True,
     "batched_qkv": True,
     "attn_bias": True,
 }
@@ -147,11 +148,11 @@ class NanoGPTConfig(Loadable, Dictable):
         default=True, metadata={"help": "Use a bias inside LayerNorm layers (only when using LinearLayerNorm)"}
     )
 
-    ll_fanout: int = field(default=4, metadata={"help": "Fanout factor for FeedForward Linear layers"})
-    ll_bias: bool = field(default=True, metadata={"help": "Use a bias inside FeedForward Linear layers"})
+    mlp_fanout: int = field(default=4, metadata={"help": "Fanout factor for FeedForward Linear layers"})
+    mlp_bias: bool = field(default=True, metadata={"help": "Use a bias inside FeedForward Linear layers"})
 
     attn_scale: Optional[float] = field(
-        default=None, metadata={"help": "Scale factor, to divide the key-query product by"}
+        default=None, metadata={"help": "Scale factor, to divide the key-query product by (default from AIAYN)"}
     )
     attn_dropout: float = field(default=0.2, metadata={"help": "Distinct attention dropout"})
     attn_bias: bool = field(default=True, metadata={"help": "Include a bias term in all attention head linear layers"})
@@ -369,10 +370,10 @@ class GenerateConfig(Loadable, Dictable):
         metadata={"help": "torch datatype to use", "choices": ["float32", "bfloat16", "float16"]},
     )
 
-    prompt: str = field(default="\n", metadata={"help": 'Text prompt for generation ("document completion")'})
+    prompt: List[int] = field(default_factory=lambda : [0], metadata={"help": 'Text prompt for generation ("document completion")'})
     batches: int = field(default=1, metadata={"help": "Distinct samples to generate"})
     max_new_tokens: int = field(default=500, metadata={"help": "Maximum new tokens to generate"})
-    temperature: float = field(default=1.0, metadata={"help": "'Temperature'"})
+    temperature: float = field(default=1.0, metadata={"help": "'Temperature': randomness for token generation"})
     top_k: Optional[int] = field(default=None, metadata={"help": "'Top k'"})
     sample: bool = field(default=True, metadata={"help": "Sample tokens, vs taking modal token"})
 

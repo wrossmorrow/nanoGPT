@@ -3,6 +3,8 @@
 """
 from __future__ import annotations
 
+from typing import Union
+
 import torch
 import torch.nn as nn
 
@@ -52,6 +54,10 @@ class NanoGPTBlock(nn.Module):
                 )
             )
         )
+
+        # could just use "nn.Module" abstraction
+        self.ln_2: Union[nn.Identity, layers.LinearLayerNorm, layers.LayerNorm]
+        self.mlp: Union[nn.Identity, layers.MultilayerPerceptron]
         if config.attention_only:
             self.ln_2, self.mlp = nn.Identity(), nn.Identity()
         else:
@@ -60,7 +66,7 @@ class NanoGPTBlock(nn.Module):
                 if config.linear_layernorms
                 else layers.LayerNorm()
             )
-            self.mlp = layers.FannedGeLU(config.n_embed, fanout=config.ll_fanout, bias=config.ll_bias)
+            self.mlp = layers.MultilayerPerceptron(config.n_embed, fanout=config.mlp_fanout, bias=config.mlp_bias)
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
         X = X + self.attn(self.ln_1(X))

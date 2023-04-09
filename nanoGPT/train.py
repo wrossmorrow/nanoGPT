@@ -13,9 +13,13 @@ import torch
 from torch import nn
 
 from nanoGPT.config import CheckpointConfig, NanoGPTContext, TrainingConfig
-from nanoGPT.data import DataLoader
+from nanoGPT.data import DataLoader, EstimatedLosses
 from nanoGPT.model import NanoGPT
 from nanoGPT.optim import save_checkpoint as optim_to_checkpoint
+from nanoGPT.identification import LinearSubspaceProjection
+
+
+IDENTIFICATION_STUDY_OUT = "identification.csv"
 
 
 def isonow() -> str:
@@ -74,11 +78,32 @@ class NanoGPTTrainer:
             status.write(f"number of parameters: {model.get_num_params()}\n")
             status.write("curr time,iter num,last iter us,train loss,test loss,best loss,mfu\n")
 
+        # IDENTIFICATION STUDY
+        LSP = LinearSubspaceProjection(
+            model.config.n_embed,
+            model.config.n_heads,
+        )
+        with open(IDENTIFICATION_STUDY_OUT, "w") as f:
+            f.write("time,iter,lsp_time,")
+            for h in range(model.config.n_heads):
+                f.write(f"reslv_head_{h+1},")
+            for n in range(6):
+                f.write(f"unf_1e({-6-n}),")
+            for n in range(6):
+                f.write(f"tid_1e({-6-n}),")
+            f.write("\n")
+
         # training loop
         X, Y = data.get_batch("train")  # fetch the very first batch
 
         ts = time()
         for it in range(self.config.max_iters):
+
+            # IDENTIFICATION STUDY
+            pre_weights = [
+                {k: W.data.clone() for k, W in qkvo.items()}
+                for qkvo in model.weights()
+            ]
 
             # determine and set the learning rate for this iteration
             lr = self.get_lr(it)
@@ -88,14 +113,14 @@ class NanoGPTTrainer:
             # evaluate step: evaluate both train/test loss and write checkpoints
             if it % self.config.eval_interval == 0 and context.main_process:
                 dt = 1.0e6 * (time() - ts)
-                tl, vl = data.estimate_loss(model, context, self.config.eval_iters)
+                losses = data.estimate_loss(model, context, self.config.eval_iters)
                 filename = checkpoints.checkpoint_filename("status")
                 with open(filename, "a") as status:
-                    status.write(f"{isonow()},{it},{dt:.6f},{tl:.4f},{vl:.4f},{best_val_loss:.4f},")
+                    status.write(f"{isonow()},{it},{dt:.6f},{losses.to_csv()},{best_val_loss:.4f},")
                     status.write("-\n" if self.mfu is None else f"{self.mfu:0.4f}\n")
-                self.on_eval(it, dt, tl, vl, best_val_loss, self.mfu)
-                if vl < best_val_loss or self.config.always_save_checkpoint:
-                    best_val_loss = vl
+                self.on_eval(it, dt, losses, best_val_loss, self.mfu)
+                if losses.val.full.mean < best_val_loss or self.config.always_save_checkpoint:
+                    best_val_loss = losses.val.full.mean
                     if it > 0:
                         # checkpoints.save(it, best_val_loss, raw_model, raw_model.config, optimizer, self.config)
                         raw_model.to_checkpoint(it, best_val_loss, checkpoints)  # type: ignore
@@ -124,6 +149,8 @@ class NanoGPTTrainer:
                 # backward pass, with gradient scaling if training in fp16
                 scaler.scale(loss).backward()
 
+            # print(model.state_dict())
+
             # clip the gradient
             if self.config.grad_clip != 0.0:
                 scaler.unscale_(optimizer)
@@ -132,6 +159,38 @@ class NanoGPTTrainer:
             # step the optimizer and scaler if training in fp16
             scaler.step(optimizer)
             scaler.update()
+
+            # IDENTIFICATION STUDY
+            for i, qkvo in enumerate(model.weights()):
+                for n in qkvo:
+                    DW = qkvo[n] - pre_weights[i][n]
+                    # print(i, n, torch.linalg.norm(DW))
+
+                WQ, WK = pre_weights[i]["Q"], pre_weights[i]["K"]
+                dWQ, dWK = qkvo["Q"] - WQ, qkvo["K"] - WK
+                if (
+                    (torch.linalg.norm(dWQ) >= 1.0e-8)
+                    and (torch.linalg.norm(dWK) >= 1.0e-8)
+                ):
+                    lsp_start = time()
+                    status, reslv, unid, idd = LSP.solve(
+                        WQ.detach(), 
+                        WK.detach(), 
+                        dWQ.detach(), 
+                        dWK.detach(), 
+                    )
+                    lsp_end = time()
+                    with open(IDENTIFICATION_STUDY_OUT, "a") as f:
+                        f.write(f"{isonow()},{it},{lsp_end-lsp_start},")
+                        f.write(','.join([f'{v}' for v in reslv]) + ',')
+                        f.write(','.join([f'{v}' for v in unid]) + ',')
+                        f.write(','.join([f'{v}' for v in idd]))
+                        f.write("\n")
+                    print(f"""{it} ({lsp_end - lsp_start}): 
+  re-solve solution norm: {', '.join([f'{i:.6}' for i in reslv])}
+  fraction unidentified: {', '.join([f'{i:.3}' for i in unid])}
+  total fraction identified: {', '.join([f'{i:.3}' for i in idd])}
+""")
 
             # flush the gradients as soon as we can, no need for this memory anymore
             optimizer.zero_grad(set_to_none=True)
@@ -147,14 +206,14 @@ class NanoGPTTrainer:
 
         # completed max_iters training steps; always consider this an evaluate step
         dt = time() - ts
-        tl, vl = data.estimate_loss(model, context, self.config.eval_iters)
+        losses = data.estimate_loss(model, context, self.config.eval_iters)
         filename = checkpoints.checkpoint_filename("status")
         with open(filename, "a") as status:
-            status.write(f"{isonow()},{it},{dt:.6f},{tl:.4f},{vl:.4f},{best_val_loss:.4f},")
+            status.write(f"{isonow()},{it},{dt:.6f},{losses.to_csv()},{best_val_loss:.4f},")
             status.write("-\n" if self.mfu is None else f"{self.mfu:0.4f}\n")
-        self.on_eval(it, dt, tl, vl, best_val_loss, self.mfu)
-        if vl < best_val_loss or self.config.always_save_checkpoint:
-            best_val_loss = vl
+        self.on_eval(it, dt, losses, best_val_loss, self.mfu)
+        if losses.val.full.mean < best_val_loss or self.config.always_save_checkpoint:
+            best_val_loss = losses.val.full.mean
             if it > 0:
                 # checkpoints.save(it, best_val_loss, raw_model, raw_model.config, optimizer, self.config)
                 raw_model.to_checkpoint(it, best_val_loss, checkpoints)  # type: ignore
@@ -213,8 +272,15 @@ class NanoGPTTrainer:
 
         return self.mfu
 
-    def on_eval(self, it: int, dt: float, tl: float, vl: float, bvl: float, mfu: Optional[float]) -> bool:
-        print(f"step {it}: train loss {tl:.4f}, val loss {vl:.4f}, (prev) best val loss {bvl:.4f}")
+    def append_status(self, checkpoints, it, dt, losses, bvl) -> None:
+        filename = checkpoints.checkpoint_filename("status")
+        with open(filename, "a") as status:
+            tl, vl = losses.train.full.mean, losses.val.full.mean
+            status.write(f"{isonow()},{it},{dt:.6f},{tl:.4f},{vl:.4f},{bvl:.4f},")
+            status.write("-\n" if self.mfu is None else f"{self.mfu:0.4f}\n")
+
+    def on_eval(self, it: int, dt: float, losses: EstimatedLosses, bvl: float, mfu: Optional[float]) -> bool:
+        print(f"step {it}: {losses}, (prev) best val loss {bvl:.4f}")
         return True
 
     def on_log(self, it: int, dt: float, loss: torch.Tensor, mfu: Optional[float]) -> bool:
