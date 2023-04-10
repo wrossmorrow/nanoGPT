@@ -6,7 +6,7 @@ dataset:
 
 model:
     vocab_size: 65 # characters only
-    n_block: 32
+    n_block: 256
     n_layer: 1
     n_heads: 1
     n_embed: 32
@@ -25,7 +25,7 @@ training:
     wandb_log: false # override via command line if you like
     n_batch: 10
     learning_rate: 1.0e-3 # with baby networks can afford to go a bit higher
-    max_iters: 5000
+    max_iters: 500
     grad_clip: 0.0
     lr_decay_iters: 5000 # make equal to max_iters usually
     min_lr: 1.0e-4 # learning_rate / 10 usually

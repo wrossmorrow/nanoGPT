@@ -84,7 +84,7 @@ class NanoGPTTrainer:
             model.config.n_heads,
         )
         with open(IDENTIFICATION_STUDY_OUT, "w") as f:
-            f.write("time,iter,lsp_time,")
+            f.write("time,iter,lsp_duration,iter_loss,")
             for h in range(model.config.n_heads):
                 f.write(f"reslv_head_{h+1},")
             for n in range(6):
@@ -179,9 +179,12 @@ class NanoGPTTrainer:
                         dWQ.detach(), 
                         dWK.detach(), 
                     )
+                    # losses = data.estimate_loss(model, context, self.config.eval_iters)
                     lsp_end = time()
+                    lsp_duration = lsp_end - lsp_start
                     with open(IDENTIFICATION_STUDY_OUT, "a") as f:
-                        f.write(f"{isonow()},{it},{lsp_end-lsp_start},")
+                        f.write(f"{isonow()},{it},")
+                        f.write(f"{lsp_duration},{loss},")
                         f.write(','.join([f'{v}' for v in reslv]) + ',')
                         f.write(','.join([f'{v}' for v in unid]) + ',')
                         f.write(','.join([f'{v}' for v in idd]))
