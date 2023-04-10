@@ -132,6 +132,7 @@ class NanoGPTConfig(Loadable, Dictable):
     n_heads: int = field(default=12, metadata={"help": "Number of heads in the multiattention layers"})
     n_embed: int = field(default=768, metadata={"help": "Embedding dimension"})
     # n_attnd: int = field(init=False, metadata={"cli": False})
+    n_qkdim: Optional[int] = field(default=None, metadata={"help": "Reduced QK dimension (when n_heads == 1 only)"})
 
     quadratic_mixer: bool = field(default=False, metadata={"help": "Use the quadratic mixing effects only"})
     batched_qkv: bool = field(
@@ -370,7 +371,9 @@ class GenerateConfig(Loadable, Dictable):
         metadata={"help": "torch datatype to use", "choices": ["float32", "bfloat16", "float16"]},
     )
 
-    prompt: List[int] = field(default_factory=lambda : [0], metadata={"help": 'Text prompt for generation ("document completion")'})
+    prompt: List[int] = field(
+        default_factory=lambda: [0], metadata={"help": 'Text prompt for generation ("document completion")'}
+    )
     batches: int = field(default=1, metadata={"help": "Distinct samples to generate"})
     max_new_tokens: int = field(default=500, metadata={"help": "Maximum new tokens to generate"})
     temperature: float = field(default=1.0, metadata={"help": "'Temperature': randomness for token generation"})

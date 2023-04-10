@@ -20,6 +20,7 @@ class GradHookFcn:
     def __init__(self, name: str, weight: torch.Tensor) -> None:
         self.name = name
         self.weight = weight
+
     def __call__(self, grad: torch.Tensor) -> None:
         print(self.name, self.weight.shape, grad.shape)
         # note: here we could attempt to find unidentified directions
@@ -28,6 +29,7 @@ class GradHookFcn:
 class ModuleGradHookFcn:
     def __init__(self, name: str) -> None:
         self.name = name
+
     def __call__(self, module: nn.Module, grad_in: torch.Tensor, grad_out: torch.Tensor) -> None:
         print(self.name, module)
         print("grad_in:", [t.shape for t in grad_in])
@@ -260,6 +262,7 @@ class SplitCausalSelfAttention(nn.Module):
         n_block: int,
         n_embed: int,
         n_heads: int,
+        n_qkdim: Optional[int] = None,
         scale: Optional[float] = None,
         dropout: float = 0.2,
         q_bias: bool = False,
@@ -272,12 +275,13 @@ class SplitCausalSelfAttention(nn.Module):
         # data copied from config (TODO: just pass params?)
         self.n_embed = n_embed
         self.n_heads = n_heads
+        self.n_qkdim = n_embed if (n_heads > 1) or (n_qkdim is None) else n_qkdim
         self.dropout = dropout
         self.quadf_scale = sqrt(n_embed / n_heads) if scale is None else scale
 
         # split Q/K/V layers (to test out invariance to biases)
-        self.QLL = nn.Linear(n_embed, n_embed, bias=q_bias)
-        self.KLL = nn.Linear(n_embed, n_embed, bias=k_bias)
+        self.QLL = nn.Linear(n_embed, self.n_qkdim, bias=q_bias)
+        self.KLL = nn.Linear(n_embed, self.n_qkdim, bias=k_bias)
         self.VLL = nn.Linear(n_embed, n_embed, bias=v_bias)
 
         # self.register_full_backward_hook(ModuleGradHookFcn(self.__class__.__name__))
@@ -297,8 +301,8 @@ class SplitCausalSelfAttention(nn.Module):
 
     def weights(self) -> Tuple[torch.Tensor]:
         return {
-            "Q": self.QLL.weight, 
-            "K": self.KLL.weight, 
+            "Q": self.QLL.weight,
+            "K": self.KLL.weight,
             "V": self.VLL.weight,
             "O": self.c_proj.weight,
         }
@@ -312,10 +316,12 @@ class SplitCausalSelfAttention(nn.Module):
     def forward(self, X: torch.Tensor) -> torch.Tensor:
         B, H, T, C, D = self._get_dims(X)
 
+        QKD = self.n_qkdim
+
         # calculate query, key, values for all heads in batch and move head
         # forward to be the batch dim
-        Q = self.QLL(X).view(B, T, H, D).transpose(1, 2)  # B x H x T x D
-        K = self.KLL(X).view(B, T, H, D).transpose(1, 2)  # B x H x T x D
+        Q = self.QLL(X).view(B, T, H, QKD).transpose(1, 2)  # B x H x T x D
+        K = self.KLL(X).view(B, T, H, QKD).transpose(1, 2)  # B x H x T x D
         V = self.VLL(X).view(B, T, H, D).transpose(1, 2)  # B x H x T x D
 
         A = (Q @ K.transpose(-2, -1)) / self.quadf_scale
@@ -362,7 +368,6 @@ class BatchedCausalSelfAttention(nn.Module):
         self.mask = torch.tril(torch.ones(n_block, n_block))
         self.mask = self.mask.view(1, 1, n_block, n_block)
         self.register_buffer("bias", self.mask)
-
 
     def weights(self) -> Tuple[torch.Tensor]:
         Q, K, V = self.c_attn.weight.split(self.n_embed, dim=2)

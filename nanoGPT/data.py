@@ -114,7 +114,7 @@ class DataLoader:
         model: torch.nn.Module,
         context: NanoGPTContext,
         eval_iters: int,
-    ) -> EstimatedLosses: # Tuple[float, float]:
+    ) -> EstimatedLosses:  # Tuple[float, float]:
         out, new_out = {}, {}
         losses, last_losses = torch.zeros(eval_iters), torch.zeros(eval_iters)
         model.eval()

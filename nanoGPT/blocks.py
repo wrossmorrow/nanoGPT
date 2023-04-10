@@ -45,6 +45,7 @@ class NanoGPTBlock(nn.Module):
                     config.n_block,
                     config.n_embed,
                     config.n_heads,
+                    n_qkdim=config.n_qkdim,
                     scale=config.attn_scale,
                     dropout=config.attn_dropout,
                     q_bias=config.q_bias,

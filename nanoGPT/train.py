@@ -16,7 +16,9 @@ from nanoGPT.config import CheckpointConfig, NanoGPTContext, TrainingConfig
 from nanoGPT.data import DataLoader, EstimatedLosses
 from nanoGPT.model import NanoGPT
 from nanoGPT.optim import save_checkpoint as optim_to_checkpoint
-from nanoGPT.identification import LinearSubspaceProjection
+from nanoGPT.identification import LinearSubspaceProjectionNaive  # noqa: F401
+from nanoGPT.identification import LinearSubspaceProjectionConstr  # noqa: F401
+from nanoGPT.identification import LinearSubspaceProjectionDPP  # noqa: F401
 
 
 IDENTIFICATION_STUDY_OUT = "identification.csv"
@@ -79,9 +81,10 @@ class NanoGPTTrainer:
             status.write("curr time,iter num,last iter us,train loss,test loss,best loss,mfu\n")
 
         # IDENTIFICATION STUDY
-        LSP = LinearSubspaceProjection(
+        LSP = LinearSubspaceProjectionDPP(
             model.config.n_embed,
             model.config.n_heads,
+            model.config.n_qkdim,
         )
         with open(IDENTIFICATION_STUDY_OUT, "w") as f:
             f.write("time,iter,lsp_duration,iter_loss,")
@@ -100,10 +103,7 @@ class NanoGPTTrainer:
         for it in range(self.config.max_iters):
 
             # IDENTIFICATION STUDY
-            pre_weights = [
-                {k: W.data.clone() for k, W in qkvo.items()}
-                for qkvo in model.weights()
-            ]
+            pre_weights = [{k: W.data.clone() for k, W in qkvo.items()} for qkvo in model.weights()]
 
             # determine and set the learning rate for this iteration
             lr = self.get_lr(it)
@@ -162,22 +162,19 @@ class NanoGPTTrainer:
 
             # IDENTIFICATION STUDY
             for i, qkvo in enumerate(model.weights()):
-                for n in qkvo:
-                    DW = qkvo[n] - pre_weights[i][n]
-                    # print(i, n, torch.linalg.norm(DW))
+                # for n in qkvo:
+                #     DW = qkvo[n] - pre_weights[i][n]
+                #     # print(i, n, torch.linalg.norm(DW))
 
                 WQ, WK = pre_weights[i]["Q"], pre_weights[i]["K"]
                 dWQ, dWK = qkvo["Q"] - WQ, qkvo["K"] - WK
-                if (
-                    (torch.linalg.norm(dWQ) >= 1.0e-8)
-                    and (torch.linalg.norm(dWK) >= 1.0e-8)
-                ):
+                if (torch.linalg.norm(dWQ) >= 1.0e-8) and (torch.linalg.norm(dWK) >= 1.0e-8):
                     lsp_start = time()
                     status, reslv, unid, idd = LSP.solve(
-                        WQ.detach(), 
-                        WK.detach(), 
-                        dWQ.detach(), 
-                        dWK.detach(), 
+                        WQ.detach(),
+                        WK.detach(),
+                        dWQ.detach(),
+                        dWK.detach(),
                     )
                     # losses = data.estimate_loss(model, context, self.config.eval_iters)
                     lsp_end = time()
@@ -185,15 +182,17 @@ class NanoGPTTrainer:
                     with open(IDENTIFICATION_STUDY_OUT, "a") as f:
                         f.write(f"{isonow()},{it},")
                         f.write(f"{lsp_duration},{loss},")
-                        f.write(','.join([f'{v}' for v in reslv]) + ',')
-                        f.write(','.join([f'{v}' for v in unid]) + ',')
-                        f.write(','.join([f'{v}' for v in idd]))
+                        f.write(",".join([f"{v}" for v in reslv]) + ",")
+                        f.write(",".join([f"{v}" for v in unid]) + ",")
+                        f.write(",".join([f"{v}" for v in idd]))
                         f.write("\n")
-                    print(f"""{it} ({lsp_end - lsp_start}): 
+                    print(
+                        f"""{it} ({lsp_end - lsp_start}):
   re-solve solution norm: {', '.join([f'{i:.6}' for i in reslv])}
   fraction unidentified: {', '.join([f'{i:.3}' for i in unid])}
   total fraction identified: {', '.join([f'{i:.3}' for i in idd])}
-""")
+"""
+                    )
 
             # flush the gradients as soon as we can, no need for this memory anymore
             optimizer.zero_grad(set_to_none=True)

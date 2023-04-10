@@ -145,11 +145,11 @@ class NanoGPT(nn.Module):
         predictions back into the model each time. Most likely you'll want
         to make sure to be in model.eval() mode of operation for this.
 
-        There are two ways to get "deterministic" predictions: (i) set the 
+        There are two ways to get "deterministic" predictions: (i) set the
         temperature to zero (or near it), or (ii) set top_k = 1. Formally
-        we could implement a special method to pick the argmax of the logits, 
-        but in principle that still might be multi-valued requiring draws 
-        anyway. 
+        we could implement a special method to pick the argmax of the logits,
+        but in principle that still might be multi-valued requiring draws
+        anyway.
         """
         for _ in range(config.max_new_tokens):
 
@@ -159,7 +159,7 @@ class NanoGPT(nn.Module):
 
             # forward the model to get the logits for the index in the sequence
             # pluck the logits at the final step and scale by desired temperature
-            # Note we safeguard against zero temperatures. 
+            # Note we safeguard against zero temperatures.
             logits, _ = self(idx_cond)  # B x T x V (V == vocab_size)
             logits = logits[:, -1, :] / max(config.temperature, 1.0e-5)
 
