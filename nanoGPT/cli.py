@@ -38,7 +38,7 @@ def optional_arg_type(arg) -> Any:
 
 def unpack_optional_arg_type(arg) -> Any:
     if optional_arg_type(arg):
-        _types = get_args(arg)
+        _types = [t for t in get_args(arg) if t is not type(None)]
         if len(_types) > 1:
             raise NotImplementedError("Currently limited to unpacking atomic type optionals in CLI")
         return _types[0]
