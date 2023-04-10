@@ -2,20 +2,47 @@ import argparse
 import re
 
 from dataclasses import dataclass, fields, Field, _MISSING_TYPE
-from typing import Any, Dict, get_type_hints, List, Optional, Tuple, Union
+from typing import Any, Dict, get_args, get_type_hints, get_origin, List, Optional, Tuple, Union
 
 from torch.cuda import is_available as cuda_is_available
 
 from nanoGPT import config
 
 
-def bool_arg_type(arg: Union[str, int, bool]):
+def bool_arg_type(arg: Union[str, int, bool]):  # returns?
     if isinstance(arg, bool):
         return arg
     if isinstance(arg, int):
         return bool(arg)
     if isinstance(arg, str):
         return re.match(r"([Tt](rue)?|[Yy]es)", arg) is not None
+
+
+def union_arg_type(arg) -> bool:
+    if get_origin(arg) is Union:
+        return True
+
+
+def unpack_union_arg_type(arg) -> bool:
+    if union_arg_type(arg):
+        return get_args(arg)
+    return arg
+
+
+def optional_arg_type(arg) -> Any:
+    if get_origin(arg) is Optional:
+        return True
+    if union_arg_type(arg):
+        return type(None) in get_args(arg)
+
+
+def unpack_optional_arg_type(arg) -> Any:
+    if optional_arg_type(arg):
+        _types = get_args(arg)
+        if _types > 1:
+            raise NotImplementedError("Currently limited to unpacking atomic type optionals in CLI")
+        return _types[0]
+    return arg
 
 
 @dataclass
@@ -105,13 +132,15 @@ class CLIParser:
     def add_field(self, parser: argparse.ArgumentParser, field: Field) -> None:
         field_flag = "--" + field.name.replace("_", "-")
         field_type = field.type
+        field_type = unpack_optional_arg_type(field_type)
         if field_type == bool:
             field_type = bool_arg_type  # type: ignore [assignment]
+
         if isinstance(field.default, _MISSING_TYPE):
             parser.add_argument(
                 field_flag,
                 type=field_type,
-                required=True,  # problematic if we allow config files
+                required=True,  # problematic if we allow config files?
                 help=field.metadata.get("help", "-"),
             )
         else:
