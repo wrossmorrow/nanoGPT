@@ -275,7 +275,7 @@ class SplitCausalSelfAttention(nn.Module):
         # data copied from config (TODO: just pass params?)
         self.n_embed = n_embed
         self.n_heads = n_heads
-        self.n_qkdim = n_embed if (n_heads > 1) or (n_qkdim is None) else n_qkdim
+        self.n_qkdim = n_embed // n_heads if (n_heads > 1) or (n_qkdim is None) else n_qkdim
         self.dropout = dropout
         self.quadf_scale = sqrt(n_embed / n_heads) if scale is None else scale
 
