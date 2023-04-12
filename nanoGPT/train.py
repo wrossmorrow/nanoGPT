@@ -89,14 +89,17 @@ class NanoGPTTrainer:
             model.config.n_qkdim,
         )
         with open(IDENTIFICATION_STUDY_OUT, "w") as f:
-            f.write("time,iter,lsp_duration,iter_loss,")
-            for h in range(model.config.n_heads):
-                f.write(f"reslv_head_{h+1},")
-            for n in range(6):
-                f.write(f"unf_1e({-6-n}),")
-            for n in range(6):
-                f.write(f"tid_1e({-6-n}),")
-            f.write("\n")
+            if SKIP_IDENT_PROJECTION:
+                f.write("time,iter,iter_loss\n")
+            else:
+                f.write("time,iter,lsp_duration,iter_loss,")
+                for h in range(model.config.n_heads):
+                    f.write(f"reslv_head_{h+1},")
+                for n in range(6):
+                    f.write(f"unf_1e({-6-n}),")
+                for n in range(6):
+                    f.write(f"tid_1e({-6-n}),")
+                f.write("\n")
 
         # training loop
         X, Y = data.get_batch("train")  # fetch the very first batch
@@ -163,7 +166,10 @@ class NanoGPTTrainer:
             scaler.update()
 
             # IDENTIFICATION STUDY
-            if not SKIP_IDENT_PROJECTION:
+            if SKIP_IDENT_PROJECTION:
+                with open(IDENTIFICATION_STUDY_OUT, "a") as f:
+                    f.write(f"{isonow()},{it},{loss}\n")
+            else:
                 for i, qkvo in enumerate(model.weights()):
                     # for n in qkvo:
                     #     DW = qkvo[n] - pre_weights[i][n]
