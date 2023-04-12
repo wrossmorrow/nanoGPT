@@ -275,13 +275,15 @@ class SplitCausalSelfAttention(nn.Module):
         # data copied from config (TODO: just pass params?)
         self.n_embed = n_embed
         self.n_heads = n_heads
-        self.n_qkdim = n_embed // n_heads if (n_heads > 1) or (n_qkdim is None) else n_qkdim
+        self.n_qkdim = None if n_heads > 1 or n_qkdim is None else n_qkdim
         self.dropout = dropout
         self.quadf_scale = sqrt(n_embed / n_heads) if scale is None else scale
 
+        qkdim = n_embed if self.n_qkdim is None else self.n_qkdim
+
         # split Q/K/V layers (to test out invariance to biases)
-        self.QLL = nn.Linear(n_embed, self.n_qkdim, bias=q_bias)
-        self.KLL = nn.Linear(n_embed, self.n_qkdim, bias=k_bias)
+        self.QLL = nn.Linear(n_embed, qkdim, bias=q_bias)
+        self.KLL = nn.Linear(n_embed, qkdim, bias=k_bias)
         self.VLL = nn.Linear(n_embed, n_embed, bias=v_bias)
 
         # self.register_full_backward_hook(ModuleGradHookFcn(self.__class__.__name__))
@@ -316,7 +318,7 @@ class SplitCausalSelfAttention(nn.Module):
     def forward(self, X: torch.Tensor) -> torch.Tensor:
         B, H, T, C, D = self._get_dims(X)
 
-        QKD = self.n_qkdim
+        QKD = D if self.n_qkdim is None else self.n_qkdim
 
         # calculate query, key, values for all heads in batch and move head
         # forward to be the batch dim
