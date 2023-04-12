@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os.path
+from os import environ
 
 from math import cos, pi
 from time import time
@@ -22,6 +23,7 @@ from nanoGPT.identification import LinearSubspaceProjectionDPP  # noqa: F401
 
 
 IDENTIFICATION_STUDY_OUT = "identification.csv"
+SKIP_IDENT_PROJECTION = environ.get("SKIP_IDENT_PROJECTION", None) is not None
 
 
 def isonow() -> str:
@@ -161,38 +163,39 @@ class NanoGPTTrainer:
             scaler.update()
 
             # IDENTIFICATION STUDY
-            for i, qkvo in enumerate(model.weights()):
-                # for n in qkvo:
-                #     DW = qkvo[n] - pre_weights[i][n]
-                #     # print(i, n, torch.linalg.norm(DW))
+            if not SKIP_IDENT_PROJECTION:
+                for i, qkvo in enumerate(model.weights()):
+                    # for n in qkvo:
+                    #     DW = qkvo[n] - pre_weights[i][n]
+                    #     # print(i, n, torch.linalg.norm(DW))
 
-                WQ, WK = pre_weights[i]["Q"], pre_weights[i]["K"]
-                dWQ, dWK = qkvo["Q"] - WQ, qkvo["K"] - WK
-                if (torch.linalg.norm(dWQ) >= 1.0e-8) and (torch.linalg.norm(dWK) >= 1.0e-8):
-                    lsp_start = time()
-                    status, reslv, unid, idd = LSP.solve(
-                        WQ.detach(),
-                        WK.detach(),
-                        dWQ.detach(),
-                        dWK.detach(),
-                    )
-                    # losses = data.estimate_loss(model, context, self.config.eval_iters)
-                    lsp_end = time()
-                    lsp_duration = lsp_end - lsp_start
-                    with open(IDENTIFICATION_STUDY_OUT, "a") as f:
-                        f.write(f"{isonow()},{it},")
-                        f.write(f"{lsp_duration},{loss},")
-                        f.write(",".join([f"{v}" for v in reslv]) + ",")
-                        f.write(",".join([f"{v}" for v in unid]) + ",")
-                        f.write(",".join([f"{v}" for v in idd]))
-                        f.write("\n")
-                    print(
-                        f"""{it} ({lsp_end - lsp_start}):
+                    WQ, WK = pre_weights[i]["Q"], pre_weights[i]["K"]
+                    dWQ, dWK = qkvo["Q"] - WQ, qkvo["K"] - WK
+                    if (torch.linalg.norm(dWQ) >= 1.0e-8) and (torch.linalg.norm(dWK) >= 1.0e-8):
+                        lsp_start = time()
+                        status, reslv, unid, idd = LSP.solve(
+                            WQ.detach(),
+                            WK.detach(),
+                            dWQ.detach(),
+                            dWK.detach(),
+                        )
+                        # losses = data.estimate_loss(model, context, self.config.eval_iters)
+                        lsp_end = time()
+                        lsp_duration = lsp_end - lsp_start
+                        with open(IDENTIFICATION_STUDY_OUT, "a") as f:
+                            f.write(f"{isonow()},{it},")
+                            f.write(f"{lsp_duration},{loss},")
+                            f.write(",".join([f"{v}" for v in reslv]) + ",")
+                            f.write(",".join([f"{v}" for v in unid]) + ",")
+                            f.write(",".join([f"{v}" for v in idd]))
+                            f.write("\n")
+                        print(
+                            f"""{it} ({lsp_end - lsp_start}):
   re-solve solution norm: {', '.join([f'{i:.6}' for i in reslv])}
   fraction unidentified: {', '.join([f'{i:.3}' for i in unid])}
   total fraction identified: {', '.join([f'{i:.3}' for i in idd])}
 """
-                    )
+                        )
 
             # flush the gradients as soon as we can, no need for this memory anymore
             optimizer.zero_grad(set_to_none=True)
