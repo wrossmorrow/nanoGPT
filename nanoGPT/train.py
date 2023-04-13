@@ -80,7 +80,9 @@ class NanoGPTTrainer:
         filename = checkpoints.checkpoint_filename("status")
         with open(filename, "w") as status:
             status.write(f"number of parameters: {model.get_num_params()}\n")
-            status.write("curr time,iter num,last iter us,train loss,test loss,best loss,mfu\n")
+            status.write("datetime,iter,elapsed,train_full_mean,train_full_std,")
+            status.write("train_last_mean,train_last_std,val_full_mean,val_full_std,")
+            status.write("val_last_mean,val_last_std,best_val_loss,mfu\n")
 
         # IDENTIFICATION STUDY
         LSP = LinearSubspaceProjectionDPP(
@@ -123,6 +125,14 @@ class NanoGPTTrainer:
                 with open(filename, "a") as status:
                     status.write(f"{isonow()},{it},{dt:.6f},{losses.to_csv()},{best_val_loss:.4f},")
                     status.write("-\n" if self.mfu is None else f"{self.mfu:0.4f}\n")
+
+                    # datetime,iter,elapsed,
+                    # train_full_mean,train_full_std,
+                    # train_last_mean,train_last_std,
+                    # val_full_mean,val_full_std,
+                    # val_last_mean,val_last_std,
+                    # best_val_loss,mfu
+
                 self.on_eval(it, dt, losses, best_val_loss, self.mfu)
                 if losses.val.full.mean < best_val_loss or self.config.always_save_checkpoint:
                     best_val_loss = losses.val.full.mean

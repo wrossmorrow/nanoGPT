@@ -169,6 +169,7 @@ def run() -> None:
     # report number of parameters (flexibly, if verbosely)
     num_params, num_params_scale, num_params_sunit = model.get_verbose_num_params()
     print(f"number of parameters: {num_params/num_params_scale:.2f}{num_params_sunit} ({num_params:,})")
+    print(f" float16 size: ({2*num_params/1024/1024/1024}GB)")
 
     # directories in config we might require
     if main_process:
