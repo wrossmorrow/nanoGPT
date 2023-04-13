@@ -59,6 +59,8 @@ class NanoGPTTrainer:
         context: NanoGPTContext,
     ) -> Any:
 
+        exit()
+
         # local data (convenience and o/w)
         best_val_loss: float = self.prev_best_val_loss
         grad_accm_steps: int = self.config.gradient_accumulation_steps
