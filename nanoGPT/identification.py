@@ -33,9 +33,9 @@ class LinearSubspaceProjectionNaive:
         self._dWQ = cp.Parameter(DxE)
         self._dWK = cp.Parameter(DxE)
 
-        self.obj = cp.sum(
-            cp.abs(self._dWQ - self._UKS @ self.S @ self._VQT) + cp.abs(self._dWK + self._UQS @ self.S.T @ self._VKT)
-        )
+        self.Qdiff = cp.abs(self._dWQ - self._UKS @ self.S @ self._VQT)
+        self.Kdiff = cp.abs(self._dWK + self._UQS @ self.S.T @ self._VKT)
+        self.obj = cp.sum(self.Qdiff + self.Kdiff)
 
         self.problem = cp.Problem(cp.Minimize(self.obj))
 
@@ -50,6 +50,7 @@ class LinearSubspaceProjectionNaive:
 
         ndWQ = torch.linalg.norm(dWQ).numpy(force=True)
         ndWK = torch.linalg.norm(dWK).numpy(force=True)
+        nrmd = (ndWQ + ndWK) / 2.0  # average instead of max
 
         status = 0.0
         ZK, ZQ = np.zeros(6), np.zeros(6)
@@ -65,8 +66,11 @@ class LinearSubspaceProjectionNaive:
             self._VQT.value = VQT.detach().numpy(force=True)
             self._VKT.value = VKT.detach().numpy(force=True)
 
-            self._dWQ.value = dWQ[D * h : D * (h + 1), :].detach().clone().numpy(force=True) / ndWQ
-            self._dWK.value = dWK[D * h : D * (h + 1), :].detach().clone().numpy(force=True) / ndWK
+            # important: use a _single_ normalization factor, not
+            # update-specific normalizations which are formally
+            # not a linear scaling operation
+            self._dWQ.value = dWQ[D * h : D * (h + 1), :].detach().clone().numpy(force=True) / nrmd
+            self._dWK.value = dWK[D * h : D * (h + 1), :].detach().clone().numpy(force=True) / nrmd
 
             self.problem.solve(solver=cp.ECOS)
             status += int(self.problem.status == "optimal")
@@ -138,6 +142,7 @@ class LinearSubspaceProjectionConstr:
 
         ndWQ = torch.linalg.norm(dWQ).numpy(force=True)
         ndWK = torch.linalg.norm(dWK).numpy(force=True)
+        nrmd = (ndWQ + ndWK) / 2.0  # average instead of max
 
         status = 0.0
         ZK, ZQ = np.zeros(6), np.zeros(6)
@@ -153,8 +158,8 @@ class LinearSubspaceProjectionConstr:
             self._VQT.value = VQT.detach().numpy(force=True)
             self._VKT.value = VKT.detach().numpy(force=True)
 
-            self._dWQ.value = dWQ[D * h : D * (h + 1), :].detach().clone().numpy(force=True) / ndWQ
-            self._dWK.value = dWK[D * h : D * (h + 1), :].detach().clone().numpy(force=True) / ndWK
+            self._dWQ.value = dWQ[D * h : D * (h + 1), :].detach().clone().numpy(force=True) / nrmd
+            self._dWK.value = dWK[D * h : D * (h + 1), :].detach().clone().numpy(force=True) / nrmd
 
             self.problem.solve(solver=cp.ECOS)
             status += int(self.problem.status == "optimal")
@@ -230,6 +235,7 @@ class LinearSubspaceProjectionDPP:
 
         ndWQ = torch.linalg.norm(dWQ).numpy(force=True)
         ndWK = torch.linalg.norm(dWK).numpy(force=True)
+        nrmd = (ndWQ + ndWK) / 2.0  # average instead of max
 
         status = 0.0
         ZK, ZQ = np.zeros(6), np.zeros(6)
@@ -245,8 +251,8 @@ class LinearSubspaceProjectionDPP:
             self._VQT.value = VQT.detach().numpy(force=True)
             self._VKT.value = VKT.detach().numpy(force=True)
 
-            self._dWQ.value = dWQ[D * h : D * (h + 1), :].detach().clone().numpy(force=True) / ndWQ
-            self._dWK.value = dWK[D * h : D * (h + 1), :].detach().clone().numpy(force=True) / ndWK
+            self._dWQ.value = dWQ[D * h : D * (h + 1), :].detach().clone().numpy(force=True) / nrmd
+            self._dWK.value = dWK[D * h : D * (h + 1), :].detach().clone().numpy(force=True) / nrmd
 
             self.problem.solve(solver=cp.ECOS)
             status += int(self.problem.status == "optimal")
