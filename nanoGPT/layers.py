@@ -288,8 +288,8 @@ class SplitCausalSelfAttention(nn.Module):
 
         # self.register_full_backward_hook(ModuleGradHookFcn(self.__class__.__name__))
 
-        # output projection
-        self.c_proj = nn.Linear(n_embed, n_embed, bias=o_bias)
+        # output projection _if_ n_heads > 1
+        self.c_proj = nn.Linear(n_embed, n_embed, bias=o_bias) if n_heads > 1 else nn.Identity()
 
         # regularization
         self.attn_dropout = nn.Dropout(dropout)
@@ -306,7 +306,7 @@ class SplitCausalSelfAttention(nn.Module):
             "Q": self.QLL.weight,
             "K": self.KLL.weight,
             "V": self.VLL.weight,
-            "O": self.c_proj.weight,
+            "O": self.c_proj.weight if self.n_heads > 1 else (nn.Parameter(data=torch.Tensor(), requires_grad=False)),
         }
 
     def _get_dims(self, X: torch.Tensor) -> Tuple[int, int, int, int, int]:
@@ -360,7 +360,7 @@ class BatchedCausalSelfAttention(nn.Module):
         self.c_attn = nn.Linear(n_embed, 3 * n_embed, bias=bias)
 
         # output projection
-        self.c_proj = nn.Linear(n_embed, n_embed, bias=bias)
+        self.c_proj = nn.Linear(n_embed, n_embed, bias=bias) if n_heads > 1 else nn.Identity()
 
         # regularization
         self.attn_dropout = nn.Dropout(dropout)
@@ -373,7 +373,12 @@ class BatchedCausalSelfAttention(nn.Module):
 
     def weights(self) -> Tuple[torch.Tensor]:
         Q, K, V = self.c_attn.weight.split(self.n_embed, dim=2)
-        return (Q, K, V)
+        return {
+            "Q": self.QLL.weight,
+            "K": self.KLL.weight,
+            "V": self.VLL.weight,
+            "O": self.c_proj.weight if self.n_heads > 1 else (nn.Parameter(data=torch.Tensor(), requires_grad=False)),
+        }
 
     def _get_dims(self, X: torch.Tensor) -> Tuple[int, int, int, int, int]:
         B, T, C = X.size()  # batch size, sequence length/block size, embedding dim
