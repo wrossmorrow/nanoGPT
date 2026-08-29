@@ -18,6 +18,7 @@ $ torchrun --nproc_per_node=8 --nnodes=2 --node_rank=1 --master_addr=123.456.123
 
 import os
 import time
+import json
 import math
 import pickle
 from contextlib import nullcontext
@@ -26,6 +27,7 @@ import numpy as np
 import torch
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import init_process_group, destroy_process_group
+import qk_symmetry
 
 from model import GPTConfig, GPT
 
@@ -57,6 +59,7 @@ bias = False # do we use bias inside LayerNorm and Linear layers?
 # adamw optimizer
 learning_rate = 6e-4 # max learning rate
 max_iters = 600000 # total number of training iterations
+optimizer_name = "adamw"
 weight_decay = 1e-1
 beta1 = 0.9
 beta2 = 0.95
@@ -77,6 +80,9 @@ config_keys = [k for k,v in globals().items() if not k.startswith('_') and isins
 exec(open('configurator.py').read()) # overrides from command line or config file
 config = {k: globals()[k] for k in config_keys} # will be useful for logging
 # -----------------------------------------------------------------------------
+
+with open("stats.jsonl", "w") as f:
+    f.write("")
 
 # various inits, derived attributes, I/O setup
 ddp = int(os.environ.get('RANK', -1)) != -1 # is this a ddp run?
@@ -196,7 +202,10 @@ model.to(device)
 scaler = torch.cuda.amp.GradScaler(enabled=(dtype == 'float16'))
 
 # optimizer
-optimizer = model.configure_optimizers(weight_decay, learning_rate, (beta1, beta2), device_type)
+optimizer = model.configure_optimizers(
+    weight_decay, learning_rate, (beta1, beta2), device_type,
+    optimizer_name=optimizer_name,
+)
 if init_from == 'resume':
     optimizer.load_state_dict(checkpoint['optimizer'])
 checkpoint = None # free up memory
@@ -245,6 +254,9 @@ def get_lr(it):
 if wandb_log and master_process:
     import wandb
     wandb.init(project=wandb_project, name=wandb_run_name, config=config)
+
+# metrics, stateful with some values at initialization
+diagnoser = qk_symmetry.Diagonoser()
 
 # training loop
 X, Y = get_batch('train') # fetch the very first batch
@@ -303,13 +315,37 @@ while True:
         X, Y = get_batch('train')
         # backward pass, with gradient scaling if training in fp16
         scaler.scale(loss).backward()
+
     # clip the gradient
     if grad_clip != 0.0:
         scaler.unscale_(optimizer)
         torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
-    # step the optimizer and scaler if training in fp16
-    scaler.step(optimizer)
-    scaler.update()
+
+    measure = (iter_num % log_interval == 0 and master_process)
+
+    if measure and bias:
+        bias_grad = {
+            "query": [],
+            "key": [],
+        }
+        for n in range(n_head):
+            b = model.transformer.h[n].attn.c_attn.bias.grad   # (3E,)
+            bq, bk, _ = b.split(n_embd)
+            bias_grad["query"].append(bq.abs().max().item())
+            bias_grad["key"].append(bk.abs().max().item())
+
+    if measure:
+        pre_step = qk_symmetry.capture(model, n_embd, n_head)
+        # step the optimizer and scaler if training in fp16
+        scaler.step(optimizer)
+        scaler.update()
+        stats = diagnoser.diagnose(model, pre_step, n_embd, n_head)   # reads "after" itself, diffs against snap
+    else:
+        stats = None
+        # step the optimizer and scaler if training in fp16
+        scaler.step(optimizer)
+        scaler.update()
+
     # flush the gradients as soon as we can, no need for this memory anymore
     optimizer.zero_grad(set_to_none=True)
 
@@ -317,7 +353,7 @@ while True:
     t1 = time.time()
     dt = t1 - t0
     t0 = t1
-    if iter_num % log_interval == 0 and master_process:
+    if measure:
         # get loss as float. note: this is a CPU-GPU sync point
         # scale up to undo the division above, approximating the true total loss (exact would have been a sum)
         lossf = loss.item() * gradient_accumulation_steps
@@ -325,6 +361,24 @@ while True:
             mfu = raw_model.estimate_mfu(batch_size * gradient_accumulation_steps, dt)
             running_mfu = mfu if running_mfu == -1.0 else 0.9*running_mfu + 0.1*mfu
         print(f"iter {iter_num}: loss {lossf:.4f}, time {dt*1000:.2f}ms, mfu {running_mfu*100:.2f}%")
+        with open("stats.jsonl", "a") as f:
+            f.write(
+                json.dumps(
+                    {
+                        "train": {
+                            "iter": iter_num,
+                            "loss": lossf,
+                            "time_ms": dt*1000,
+                            "learning_rate": lr,
+                        },
+                        "bias": bias_grad,
+                        "diagnose": stats,
+                    },
+                    default=str,
+                ) + "\n"
+            )
+
+
     iter_num += 1
     local_iter_num += 1
 

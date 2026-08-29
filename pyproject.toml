@@ -1,0 +1,25 @@
+[project]
+name = "nanogpt-identification"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "torch",
+    "numpy",
+    "tiktoken",     # GPT-2 BPE; not needed for char-level Shakespeare
+    "transformers", # only if loading pretrained GPT-2 weights
+    "tqdm",
+    "datasets>=5.0.1",
+    "jupyter>=1.1.1",
+    "pandas>=3.0.5",
+    "matplotlib>=3.11.1",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cu130", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
