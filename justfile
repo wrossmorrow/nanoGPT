@@ -1,4 +1,7 @@
 
+device := "mps"
+compile := "False"
+
 default:
     just --lists
 
@@ -8,15 +11,15 @@ prepare dataset:
 train:
     uv run train.py \
         config/train_shakespeare_char.py \
-        --device=mps \
-        --compile=False \
+        --device={{device}} \
+        --compile={{compile}} \
         --dtype=float32 \
         --bias=True
 sample:
     uv run sample.py \
         --out_dir=out-shakespeare-char \
-        --device=mps \
-        --compile=False \
+        --device={{device}} \
+        --compile={{compile}} \
         --dtype=float32
 
 train-all: train-sgd-wd-0 train-sgd-wd-01 train-adamw
@@ -24,8 +27,8 @@ train-all: train-sgd-wd-0 train-sgd-wd-01 train-adamw
 train-sgd-wd-0:
     uv run train.py \
         config/train_shakespeare_char.py \
-        --device=mps \
-        --compile=False \
+        --device={{device}} \
+        --compile={{compile}} \
         --dtype=float32 \
         --bias=True \
         --optimizer_name=sgd \
@@ -37,8 +40,8 @@ train-sgd-wd-0:
 train-sgd-wd-01:
     uv run train.py \
         config/train_shakespeare_char.py \
-        --device=mps \
-        --compile=False \
+        --device={{device}} \
+        --compile={{compile}} \
         --dtype=float32 \
         --bias=True \
         --optimizer_name=sgd \
@@ -50,8 +53,8 @@ train-sgd-wd-01:
 train-adamw:
     uv run train.py \
         config/train_shakespeare_char.py \
-        --device=mps \
-        --compile=False \
+        --device={{device}} \
+        --compile={{compile}} \
         --dtype=float32 \
         --bias=True \
         --optimizer_name=adamw \
@@ -63,8 +66,8 @@ train-sgd-wd-0-sweep:
     mkdir -p results/sweep
     uv run train.py \
         config/train_shakespeare_char.py \
-        --device=mps \
-        --compile=False \
+        --device={{device}} \
+        --compile={{compile}} \
         --dtype=float32 \
         --bias=True \
         --optimizer_name=sgd \
@@ -73,8 +76,8 @@ train-sgd-wd-0-sweep:
     mv stats.jsonl results/sgd-wo-weight-decay-sweep/0_5.jsonl
     uv run train.py \
         config/train_shakespeare_char.py \
-        --device=mps \
-        --compile=False \
+        --device={{device}} \
+        --compile={{compile}} \
         --dtype=float32 \
         --bias=True \
         --optimizer_name=sgd \
@@ -83,8 +86,8 @@ train-sgd-wd-0-sweep:
     mv stats.jsonl results/sgd-wo-weight-decay-sweep/0_25.jsonl
     uv run train.py \
         config/train_shakespeare_char.py \
-        --device=mps \
-        --compile=False \
+        --device={{device}} \
+        --compile={{compile}} \
         --dtype=float32 \
         --bias=True \
         --optimizer_name=sgd \
@@ -93,8 +96,8 @@ train-sgd-wd-0-sweep:
     mv stats.jsonl results/sgd-wo-weight-decay-sweep/0_125.jsonl
     uv run train.py \
         config/train_shakespeare_char.py \
-        --device=mps \
-        --compile=False \
+        --device={{device}} \
+        --compile={{compile}} \
         --dtype=float32 \
         --bias=True \
         --optimizer_name=sgd \
