@@ -105,7 +105,7 @@ class Diagonoser:
     def __init__(self):
         self.c0 = {}
 
-    def head_metrics(self, key, Wq0, Wk0, Wq1, Wk1):
+    def head_metrics(self, key, Wq0, Wk0, Wq1, Wk1, lr, wd):
         """Diagnostics for one head, given pre- and post-step weights (D, E) f64."""
 
         dWq, dWk = Wq1 - Wq0, Wk1 - Wk0
@@ -151,9 +151,10 @@ class Diagonoser:
             # hypothesis behind the D^2 count starts to fail.
             "mu": denom.min().item(),
             "con_drift": (torch.linalg.norm(con1 - c0) / torch.linalg.norm(c0)).item(),
+            "decay_frac": (lr*wd)**2 * (Wq0.pow(2).sum() + Wk0.pow(2).sum()) / den,
         }
 
-    def diagnose(self, model, pre_step, n_embd, n_head):
+    def diagnose(self, model, pre_step, n_embd, n_head, lr, wd):
         """Per-head metrics for the step that just happened.
 
         `pre_step` is the dict returned by capture() before optimizer.step().  The
@@ -163,7 +164,7 @@ class Diagonoser:
         out = {}
         for key, wq, wk in _weights_f64(model, n_embd, n_head):
             Wq0, Wk0 = pre_step[key]
-            out["head" + str(key)] = self.head_metrics(key, Wq0, Wk0, wq, wk)
+            out["head" + str(key)] = self.head_metrics(key, Wq0, Wk0, wq, wk, lr, wd)
         return out
 
 

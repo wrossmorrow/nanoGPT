@@ -258,6 +258,15 @@ if wandb_log and master_process:
 # metrics, stateful with some values at initialization
 diagnoser = qk_symmetry.Diagonoser()
 
+lr_sum = sum(get_lr(iter_num) for iter_num in range(max_iters))
+shrink = math.exp(-2 * weight_decay * lr_sum)
+print(f"[preflight] sum_lr={lr_sum:.3f}  lr*wd={learning_rate*weight_decay:.2e}  "
+      f"predicted decayed-group ||W||^2 shrink={shrink:.4g}")
+assert shrink > 0.01, (
+    f"weight decay will destroy the decayed parameters (shrink {shrink:.2e}); "
+    f"try weight_decay={-math.log(0.5)/(2*lr_sum):.2e} for a 2x shrink"
+)
+
 # training loop
 X, Y = get_batch('train') # fetch the very first batch
 t0 = time.time()
@@ -339,7 +348,7 @@ while True:
         # step the optimizer and scaler if training in fp16
         scaler.step(optimizer)
         scaler.update()
-        stats = diagnoser.diagnose(model, pre_step, n_embd, n_head)   # reads "after" itself, diffs against snap
+        stats = diagnoser.diagnose(model, pre_step, n_embd, n_head, lr, weight_decay)
     else:
         stats = None
         # step the optimizer and scaler if training in fp16
@@ -370,6 +379,7 @@ while True:
                             "loss": lossf,
                             "time_ms": dt*1000,
                             "learning_rate": lr,
+                            "weight_decay": weight_decay,
                         },
                         "bias": bias_grad,
                         "diagnose": stats,
