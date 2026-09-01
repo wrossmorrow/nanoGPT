@@ -37,6 +37,7 @@ from model import GPTConfig, GPT
 out_dir = 'out'
 eval_interval = 2000
 log_interval = 1
+reset_interval = 0
 eval_iters = 200
 eval_only = False # if True, script exits right after the first eval
 always_save_checkpoint = True # if True, always save a checkpoint after each eval
@@ -81,6 +82,7 @@ exec(open('configurator.py').read()) # overrides from command line or config fil
 config = {k: globals()[k] for k in config_keys} # will be useful for logging
 # -----------------------------------------------------------------------------
 
+# clear our custom "stats" for identification analysis
 with open("stats.jsonl", "w") as f:
     f.write("")
 
@@ -114,7 +116,7 @@ torch.backends.cuda.matmul.allow_tf32 = True # allow tf32 on matmul
 torch.backends.cudnn.allow_tf32 = True # allow tf32 on cudnn
 device_type = 'cuda' if 'cuda' in device else 'cpu' # for later use in torch.autocast
 # note: float16 data type will automatically use a GradScaler
-ptdtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torch.float16}[dtype]
+ptdtype = {'float64': torch.float64, 'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torch.float16}[dtype]
 ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
 
 # poor man's data loader
@@ -330,7 +332,8 @@ while True:
         scaler.unscale_(optimizer)
         torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
 
-    measure = (iter_num % log_interval == 0 and master_process)
+    measure = (iter_num % log_interval == 0) and master_process
+    reset = (reset_interval > 0) and (iter_num % reset_interval == 0)
 
     if measure and bias:
         bias_grad = {
@@ -357,6 +360,14 @@ while True:
 
     # flush the gradients as soon as we can, no need for this memory anymore
     optimizer.zero_grad(set_to_none=True)
+
+    if reset:
+        print(f"iter {iter_num}: resetting weights and optimizer state")
+        # NOTE: comment out the next line to baseline AdamW state clearing only
+        diagnoser.reset(model, n_embd, n_head)
+        # surgically remove AdamW state for the attention heads
+        for block in model.transformer.h:
+            optimizer.state.pop(block.attn.c_attn.weight, None)
 
     # timing and logging
     t1 = time.time()

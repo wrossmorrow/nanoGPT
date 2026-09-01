@@ -37,6 +37,20 @@ train-sgd-wd-0:
     mkdir -p results
     mv stats.jsonl results/sgd-wo-weight-decay.jsonl
 
+train-sgd-wd-0-cpu:
+    uv run train.py \
+        config/train_shakespeare_char.py \
+        --device=cpu \
+        --compile={{compile}} \
+        --dtype=float64 \
+        --bias=True \
+        --optimizer_name=sgd \
+        --weight_decay=0.0 \
+        --learning_rate=0.25 \
+        --max_iters=1000
+    mkdir -p results
+    mv stats.jsonl results/sgd-wo-weight-decay-cpu.jsonl
+
 train-sgd-wd-01:
     uv run train.py \
         config/train_shakespeare_char.py \
@@ -61,6 +75,19 @@ train-adamw:
         --weight_decay=0.1
     mkdir -p results
     mv stats.jsonl results/adamw.jsonl
+
+train-adamw-rebalance:
+    uv run train.py \
+        config/train_shakespeare_char.py \
+        --device={{device}} \
+        --compile={{compile}} \
+        --dtype=float32 \
+        --bias=True \
+        --optimizer_name=adamw \
+        --weight_decay=0.1 \
+        --reset_interval=200
+    mkdir -p results
+    mv stats.jsonl results/adamw-state-clear.jsonl
 
 train-sgd-wd-0-sweep:
     mkdir -p results/sweep

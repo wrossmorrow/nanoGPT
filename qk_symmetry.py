@@ -100,6 +100,18 @@ def capture(model, n_embd, n_head):
             for key, wq, wk in _weights_f64(model, n_embd, n_head)}
 
 
+def rebalance(Wq, Wk):
+    """Move to the balanced point on the same orbit. Model output unchanged."""
+    Qq, Rq = torch.linalg.qr(Wq.T)            # (E,D), (D,D)
+    Qk, Rk = torch.linalg.qr(Wk.T)            # (E,D), (D,D)
+    Us, S, Vh = torch.linalg.svd(Rk @ Rq.T)   # D x D only
+    r = torch.diag(S.sqrt())
+    q, k = r @ Vh @ Qq.T, r @ Us.T @ Qk.T
+    U, _, Z = torch.linalg.svd(Wq @ q.T + Wk @ k.T)   # Procrustes
+    P = U @ Z  # effectively solving a || . ||_F^2 problem for idempotency
+    return P @ q, P @ k
+
+
 class Diagonoser:
 
     def __init__(self):
@@ -166,6 +178,22 @@ class Diagonoser:
             Wq0, Wk0 = pre_step[key]
             out["head" + str(key)] = self.head_metrics(key, Wq0, Wk0, wq, wk, lr, wd)
         return out
+
+    def reset(self, model, n_embd, n_head):
+        """Reset weights by rebalancing away unidentified params"""
+        E, H = n_embd, n_head
+        D = E // H
+        with torch.no_grad():  # don't reset grad-leaves without no_grad
+            for block in model.transformer.h:
+                W = block.attn.c_attn.weight
+                Wq, Wk, _ = W.split(E, dim=0)
+                Wq, Wk = Wq.view(H, D, E), Wk.view(H, D, E)
+                for h in range(H):
+                    Mb = (Wk[h].T @ Wq[h]).clone()
+                    q, k = rebalance(Wq[h].cpu().double(), Wk[h].cpu().double())
+                    Wq[h].copy_(q.to(W.dtype).to(W.device))
+                    Wk[h].copy_(k.to(W.dtype).to(W.device))
+                    assert (Wk[h].T @ Wq[h] - Mb).norm() / Mb.norm() < 1e-5
 
 
 # ---------------------------------------------------------------------------
